@@ -7,23 +7,20 @@ on:
 
 jobs:
   deploy:
-    name: Upload via FTP
+    name: Upload via SFTP
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Deploy via FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      - name: Deploy via SFTP
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
         with:
           server: ftp.hosting-ik.com
+          port: 22
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASS }}
-          local-dir: ./
-          server-dir: /sites/dxascanlausanne.com/
-          exclude: |
-            **/.git*
-            **/.git*/**
-            .github/**
-            README.md
+          local_path: ./index.html
+          remote_path: /sites/dxascanlausanne.com/
+          sftp_only: true
