@@ -7,20 +7,19 @@ on:
 
 jobs:
   deploy:
-    name: Upload via SFTP
+    name: Upload files
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Deploy via SFTP
-        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
-        with:
-          server: ftp.hosting-ik.com
-          port: 22
-          username: ${{ secrets.FTP_USER }}
-          password: ${{ secrets.FTP_PASS }}
-          local_path: ./index.html
-          remote_path: /sites/dxascanlausanne.com/
-          sftp_only: true
+      - name: Install lftp
+        run: sudo apt-get install -y lftp
+
+      - name: Deploy via FTP
+        env:
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
+        run: |
+          lftp -u "$FTP_USER","$FTP_PASS" -e "set ftp:ssl-allow no; set ftp:passive-mode yes; set net:timeout 30; put -O /sites/dxascanlausanne.com/ index.html; quit" ftp.hosting-ik.com
