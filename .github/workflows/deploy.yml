@@ -7,19 +7,18 @@ on:
 
 jobs:
   deploy:
-    name: Upload files
+    name: Trigger deploy webhook
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install lftp
-        run: sudo apt-get install -y lftp
-
-      - name: Deploy via FTP
+      - name: Ping deploy.php
         env:
-          FTP_USER: ${{ secrets.FTP_USER }}
-          FTP_PASS: ${{ secrets.FTP_PASS }}
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
         run: |
-          lftp -u "$FTP_USER","$FTP_PASS" -e "set ftp:ssl-allow no; set ftp:passive-mode yes; set net:timeout 30; put -O /sites/dxascanlausanne.com/ index.html; quit" ftp.hosting-ik.com
+          STATUS=$(curl -s -o /tmp/out.txt -w "%{http_code}" "https://dxascanlausanne.com/deploy.php?token=$DEPLOY_TOKEN")
+          cat /tmp/out.txt
+          if [ "$STATUS" != "200" ]; then
+            echo "Deploy failed with HTTP $STATUS"
+            exit 1
+          fi
+          echo "Deploy successful!"
