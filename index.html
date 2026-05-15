@@ -2,11 +2,14 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Scan DXA Lausanne — Composition corporelle précise | MotionLab</title>
   <meta name="description" content="Scan DXA à Lausanne — mesurez avec précision votre masse musculaire, masse grasse et densité osseuse au Centre médical MotionLab, Le Mont-sur-Lausanne. Résultats immédiats. Dès 100 CHF." />
   <meta name="author" content="Cédrian Bou Assaf" />
   <meta name="theme-color" content="#0A4B6E" />
+
+  <!-- ── VÉRIFICATION DE DOMAINE META (Business Manager) ── -->
+  <meta name="facebook-domain-verification" content="3og429ruxllm0v6sfb6fuvlgrbvrht" />
 
   <!-- ── INDEXATION ── -->
   <meta name="robots" content="index, follow" />
@@ -18,7 +21,7 @@
   <meta name="geo.position" content="46.5540;6.6050" />
   <meta name="ICBM" content="46.5540, 6.6050" />
 
-  <!-- ── META PIXEL ── -->
+  <!-- ── META PIXEL + CAPI (double envoi avec déduplication via event_id) ── -->
   <script>
   !function(f,b,e,v,n,t,s)
   {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
@@ -29,16 +32,67 @@
   s.parentNode.insertBefore(t,s)}(window, document,'script',
   'https://connect.facebook.net/en_US/fbevents.js');
   fbq('init', '1402380120757154');
-  fbq('track', 'PageView');
+
+  /* ── Helper : génère un UUID v4 simple pour event_id ── */
+  function metaUUID() {
+    return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+      (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+    );
+  }
+
+  /* ── Helper : envoie l'événement EN PARALLÈLE au Pixel (browser) et à CAPI (server)
+        avec le MÊME event_id pour que Meta dédupe automatiquement ── */
+  function metaTrack(eventName, customData, userData) {
+    const eventId = metaUUID();
+
+    // 1) Pixel browser — fire normalement, mais avec eventID pour dédup
+    if (window.fbq) {
+      fbq('track', eventName, customData || {}, { eventID: eventId });
+    }
+
+    // 2) CAPI server-side via notre endpoint /capi.php
+    try {
+      fetch('/capi.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        keepalive: true, // permet l'envoi même si l'utilisateur navigue ailleurs
+        body: JSON.stringify({
+          event_name: eventName,
+          event_id: eventId,
+          event_time: Math.floor(Date.now() / 1000),
+          event_source_url: window.location.href,
+          custom_data: customData || {},
+          ...(userData || {}) // email, phone, first_name, last_name, etc.
+        })
+      }).catch(err => console.warn('CAPI fetch failed:', err));
+    } catch (e) { /* silent */ }
+
+    return eventId;
+  }
+  // Exposer globalement pour pouvoir l'appeler depuis ailleurs
+  window.metaTrack = metaTrack;
+
+  // PageView au chargement
+  metaTrack('PageView');
   </script>
   <noscript><img height="1" width="1" style="display:none"
   src="https://www.facebook.com/tr?id=1402380120757154&ev=PageView&noscript=1"
   /></noscript>
 
-  <!-- ── PERFORMANCE ── -->
+  <!-- ── PERFORMANCE & PRÉCHARGEMENT CALENDLY ── -->
   <link rel="preconnect" href="https://calendly.com" />
+  <link rel="preconnect" href="https://assets.calendly.com" crossorigin />
   <link rel="dns-prefetch" href="https://calendly.com" />
+  <link rel="dns-prefetch" href="https://assets.calendly.com" />
   <link href="https://assets.calendly.com/assets/external/widget.css" rel="stylesheet" />
+
+  <!-- Prefetch des pages de réservation Calendly pour ouverture instantanée -->
+  <link rel="prefetch" href="https://calendly.com/cedrian/dxa-ig" as="document" />
+  <link rel="prefetch" href="https://calendly.com/cedrian/packdxanutri" as="document" />
+  <link rel="prefetch" href="https://calendly.com/cedrian/pack3dxa" as="document" />
+
+  <!-- Preload du widget JS pour exécution prioritaire -->
+  <link rel="preload" href="https://assets.calendly.com/assets/external/widget.js" as="script" />
 
   <!-- ── OPEN GRAPH (Facebook / Instagram / partage social) ── -->
   <meta property="og:type"        content="website" />
@@ -230,7 +284,41 @@
     .text-center{text-align:center}
 
     /* ── NAVBAR ── */
-    nav{position:sticky;top:0;background:#fff;border-bottom:1px solid #E2E8F0;z-index:100;padding:14px 20px}
+    nav{position:sticky;top:0;background:#fff;border-bottom:1px solid #E2E8F0;z-index:100;padding:max(14px,env(safe-area-inset-top)) 20px 14px;transition:transform .28s cubic-bezier(.4,0,.2,1);will-change:transform}
+    body.nav-hidden nav{transform:translateY(-100%)}
+
+    /* ── STICKY BOTTOM CTA (mobile uniquement, scroll-down only) ── */
+    .sticky-bottom-cta{
+      position:fixed;left:0;right:0;
+      /* bottom: 0 strict pour s'ancrer tout en bas du viewport visible
+         Combiné avec viewport-fit=cover dans le meta viewport,
+         cela garantit le collage parfait sur Chrome ET Safari */
+      bottom:0;
+      margin:0;
+      z-index:99;
+      background:#fff;border-top:1px solid #E2E8F0;
+      /* padding-bottom utilise max() pour garantir au minimum 12px
+         et ajouter la safe-area home indicator iPhone si présente */
+      padding:10px 14px;
+      padding-bottom:max(12px, env(safe-area-inset-bottom));
+      box-shadow:0 -6px 20px rgba(0,0,0,.08);
+      transform:translateY(100%);
+      transition:transform .28s cubic-bezier(.4,0,.2,1);
+      will-change:transform;
+      display:none;
+    }
+    .sticky-bottom-cta a{
+      display:flex;align-items:center;justify-content:center;
+      width:100%;padding:14px 20px;
+      background:var(--accent);color:#fff;
+      border-radius:12px;font-weight:700;font-size:.98rem;
+      text-decoration:none;box-shadow:0 4px 12px rgba(238,124,58,.3)
+    }
+    .sticky-bottom-cta a:active{transform:scale(.98)}
+    body.bottom-cta-visible .sticky-bottom-cta{transform:translateY(0)}
+    @media (max-width:768px){
+      .sticky-bottom-cta{display:block}
+    }
     .nav-inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between}
     .nav-logo{font-weight:800;font-size:1.15rem;color:var(--primary);text-decoration:none}
     .nav-logo span{color:var(--accent)}
@@ -244,6 +332,11 @@
     .hero-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.15);color:#fff;padding:7px 16px;border-radius:30px;font-size:.82rem;font-weight:600;margin-bottom:22px;backdrop-filter:blur(4px)}
     .hero h1{color:#fff;margin-bottom:18px}
     .hero-sub{font-size:1.1rem;opacity:.88;margin-bottom:32px;line-height:1.75}
+    /* Hero bullets — version concise et lisible */
+    .hero-bullets{list-style:none;padding:0;margin:0 0 32px;display:flex;flex-direction:column;gap:14px}
+    .hero-bullets li{display:flex;align-items:flex-start;gap:12px;font-size:.98rem;line-height:1.5;color:rgba(255,255,255,.92)}
+    .hero-bullets li strong{color:#fff;font-weight:700}
+    .hb-icon{font-size:1.15rem;line-height:1.4;flex-shrink:0;width:24px;text-align:center}
     .hero-cta-group{display:flex;flex-direction:column;gap:14px;align-items:flex-start;margin-bottom:32px}
     .hero-guarantee{font-size:.82rem;opacity:.75;display:flex;align-items:center;gap:6px}
     .hero-trust{display:flex;gap:24px;flex-wrap:wrap;padding-top:24px;border-top:1px solid rgba(255,255,255,.15)}
@@ -339,10 +432,31 @@
     .urgency-pill{display:inline-block;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:10px 22px;font-size:.88rem;margin-bottom:28px}
     .cta-reassurance{margin-top:16px;opacity:.65;font-size:.82rem}
 
-    /* ── FOOTER ── */
-    footer{background:var(--primary-dark);color:rgba(255,255,255,.55);padding:28px 20px;text-align:center;font-size:.82rem;line-height:1.8}
-    footer a{color:rgba(255,255,255,.55);text-decoration:none}
-    footer a:hover{color:#fff}
+    /* ── CREDENTIALS (section À propos) ── */
+    .credentials{display:flex;flex-direction:column;gap:14px;margin-bottom:28px}
+    .credential{display:flex;align-items:flex-start;gap:12px}
+    .credential-icon{width:32px;height:32px;border-radius:8px;background:var(--teal-light);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+    .credential-title{font-size:.92rem;font-weight:600;color:var(--gray-800);margin:0;line-height:1.35}
+    .credential-desc{font-size:.82rem;color:var(--gray-600);margin:2px 0 0;line-height:1.4}
+    @media (max-width:600px){
+      .credential-title{font-size:.88rem;line-height:1.3;hyphens:auto;-webkit-hyphens:auto;word-break:break-word}
+      .credential-desc{font-size:.78rem}
+      .credential{gap:10px}
+    }
+
+    /* ── FOOTER (refonte propre, fonts uniformes + safe-area iOS) ── */
+    footer{background:var(--primary-dark);color:rgba(255,255,255,.55);padding:32px 20px max(28px, env(safe-area-inset-bottom));text-align:center;font-size:.82rem;line-height:1.6;-webkit-text-size-adjust:100%}
+    footer .footer-inner{max-width:720px;margin:0 auto}
+    footer p{margin:8px 0;font-size:.82rem;line-height:1.55;color:rgba(255,255,255,.6)}
+    footer p.footer-strong{color:rgba(255,255,255,.85);font-weight:600;font-size:.84rem}
+    footer a{color:rgba(255,255,255,.7) !important;text-decoration:none;font-size:inherit !important;font-weight:inherit !important}
+    footer a:hover{color:#fff !important}
+    footer .footer-sep{opacity:.35;margin:0 8px;display:inline-block}
+    @media (max-width:600px){
+      footer{padding:26px 16px 22px}
+      footer p,footer p.footer-strong{font-size:.78rem}
+      footer .footer-sep{margin:0 5px}
+    }
 
     /* ── HERO SLOGAN ── */
     .hero-slogan{font-size:.95rem;font-weight:700;color:rgba(255,255,255,.75);letter-spacing:.04em;margin-bottom:10px;text-transform:uppercase}
@@ -429,7 +543,7 @@
       <a href="#offres">Nos offres</a>
       <a href="#faq">FAQ</a>
     </div>
-    <a href="https://calendly.com/cedrian/dxa-ig" rel="noopener noreferrer" target="_blank" class="btn-primary" style="padding:12px 22px;font-size:.88rem" onclick="fbq('track','InitiateCheckout')">
+    <a href="#" class="btn-primary" style="padding:12px 22px;font-size:.88rem" onclick="return openCalendly('https://calendly.com/cedrian/dxa-ig')">
       Réserver maintenant
     </a>
   </div>
@@ -444,9 +558,11 @@
       </div>
       <p class="hero-slogan">La balance ment. Le DXA dit la vérité.</p>
       <h1>Votre corps en haute définition</h1>
-      <p class="hero-sub">
-        Le scan DXA mesure avec précision votre masse musculaire, masse grasse, surface de graisse viscérale et densité osseuse — en 6 minutes chrono. Résultats interprétés sur place. Disponible à Lausanne.
-      </p>
+      <ul class="hero-bullets">
+        <li><span class="hb-icon">📏</span><span><strong>Masse musculaire, graisse, graisse viscérale &amp; densité osseuse</strong> — mesurées avec précision médicale</span></li>
+        <li><span class="hb-icon">⏱️</span><span><strong>6 minutes chrono</strong> — résultats interprétés sur place avec un nutritionniste</span></li>
+        <li><span class="hb-icon">📍</span><span><strong>Centre médical MotionLab</strong>, Le Mont-sur-Lausanne</span></li>
+      </ul>
       <div class="hero-cta-group">
         <a href="#offres" class="btn-primary">
           Réserver mon scan — dès 100 CHF&nbsp;→
@@ -538,7 +654,7 @@
         <span class="section-label">Le problème</span>
         <h2>La balance ment. Le DXA dit la vérité.</h2>
         <p>Elle vous donne un chiffre global — mais elle ne distingue jamais muscle de graisse, ne voit pas la densité de vos os, et ignore la graisse viscérale qui se cache autour de vos organes.</p>
-        <a href="https://calendly.com/cedrian/dxa-ig" rel="noopener noreferrer" target="_blank" class="btn-secondary" style="margin-top:8px">
+        <a href="#" class="btn-secondary" style="margin-top:8px" onclick="return openCalendly('https://calendly.com/cedrian/dxa-ig')">
           Voir ce que mon corps cache vraiment&nbsp;→
         </a>
       </div>
@@ -779,38 +895,38 @@
         </p>
 
         <!-- Credentials -->
-        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:28px">
-          <div style="display:flex;align-items:flex-start;gap:12px">
-            <div style="width:32px;height:32px;border-radius:8px;background:var(--teal-light);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">🎓</div>
+        <div class="credentials">
+          <div class="credential">
+            <div class="credential-icon">🎓</div>
             <div>
-              <p style="font-size:.88rem;font-weight:600;color:var(--gray-800);margin:0">Bachelor en nutrition du sport</p>
-              <p style="font-size:.82rem;color:var(--gray-600);margin:0">Formation académique en nutrition appliquée à la performance</p>
+              <p class="credential-title">Bachelor en nutrition du sport</p>
+              <p class="credential-desc">Formation académique en nutrition appliquée à la performance</p>
             </div>
           </div>
-          <div style="display:flex;align-items:flex-start;gap:12px">
-            <div style="width:32px;height:32px;border-radius:8px;background:var(--teal-light);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">🎓</div>
+          <div class="credential">
+            <div class="credential-icon">🎓</div>
             <div>
-              <p style="font-size:.88rem;font-weight:600;color:var(--gray-800);margin:0">Diplôme en sciences de l'entraînement et de la nutrition evidence based</p>
-              <p style="font-size:.82rem;color:var(--gray-600);margin:0">Approche scientifique et basée sur les preuves</p>
+              <p class="credential-title">Master · Sciences de l'entraînement &amp; nutrition evidence based</p>
+              <p class="credential-desc">Approche scientifique, fondée sur les preuves</p>
             </div>
           </div>
-          <div style="display:flex;align-items:flex-start;gap:12px">
-            <div style="width:32px;height:32px;border-radius:8px;background:var(--teal-light);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">🏥</div>
+          <div class="credential">
+            <div class="credential-icon">🏥</div>
             <div>
-              <p style="font-size:.88rem;font-weight:600;color:var(--gray-800);margin:0">Centre médical MotionLab</p>
-              <p style="font-size:.82rem;color:var(--gray-600);margin:0">Chemin du Petit-Flon 29 · 1052 Le Mont-sur-Lausanne</p>
+              <p class="credential-title">Centre médical MotionLab</p>
+              <p class="credential-desc">Chemin du Petit-Flon 29 · 1052 Le Mont-sur-Lausanne</p>
             </div>
           </div>
-          <div style="display:flex;align-items:flex-start;gap:12px">
-            <div style="width:32px;height:32px;border-radius:8px;background:var(--teal-light);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">📊</div>
+          <div class="credential">
+            <div class="credential-icon">📊</div>
             <div>
-              <p style="font-size:.88rem;font-weight:600;color:var(--gray-800);margin:0">+400 scans DXA réalisés</p>
-              <p style="font-size:.82rem;color:var(--gray-600);margin:0">depuis 2024 sur la région lausannoise</p>
+              <p class="credential-title">+400 scans DXA réalisés</p>
+              <p class="credential-desc">depuis 2024 sur la région lausannoise</p>
             </div>
           </div>
         </div>
 
-        <a href="https://calendly.com/cedrian/dxa-ig" rel="noopener noreferrer" target="_blank" class="btn-primary" onclick="fbq('track','InitiateCheckout')">
+        <a href="#" class="btn-primary" onclick="return openCalendly('https://calendly.com/cedrian/dxa-ig')">
           Réserver avec Cédrian&nbsp;→
         </a>
       </div>
@@ -843,7 +959,7 @@
           <li><span class="check">✓</span> Densité osseuse (score T &amp; Z)</li>
           <li><span class="check">✓</span> Comparaison aux normes d'âge</li>
         </ul>
-        <a href="https://calendly.com/cedrian/dxa-ig" rel="noopener noreferrer" target="_blank" class="btn-secondary" style="display:block;text-align:center">
+        <a href="#" class="btn-secondary" style="display:block;text-align:center" onclick="return openCalendly('https://calendly.com/cedrian/dxa-ig')">
           Réserver ce scan
         </a>
       </div>
@@ -853,7 +969,7 @@
         <div class="featured-badge">⭐ Recommandé</div>
         <div class="pricing-name">DXA + Bilan nutritionnel</div>
         <div class="pricing-price">175 <span class="pricing-price-sub">CHF</span></div>
-        <p class="pricing-desc">Le scan complet avec un calcul personnalisé de vos besoins nutritionnels — des données précises pour ajuster votre alimentation et votre entraînement.</p>
+        <p class="pricing-desc">Le scan complet, le calcul personnalisé de vos besoins nutritionnels <strong>et l'accès offert à Nutrium</strong> — l'application pro de suivi pour transformer vos données en résultats au quotidien.</p>
         <ul class="pricing-features">
           <li><span class="check">✓</span> Tout le contenu DXA Standard</li>
           <li><span class="check">✓</span> Besoins caloriques réels (kcal/jour)</li>
@@ -862,8 +978,26 @@
           <li><span class="check">✓</span> Recommandations selon vos objectifs</li>
           <li><span class="check">✓</span> Suivi facilité au prochain scan</li>
         </ul>
+
+        <!-- ── BONUS NUTRIUM ── -->
+        <div style="background:linear-gradient(135deg,#FFF1E5 0%,#FFE0CC 100%);border:1px solid #FFCBA8;border-radius:12px;padding:14px 16px;margin:16px 0 14px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:1.2rem;line-height:1">🎁</span>
+            <strong style="color:#C8541E;font-size:.78rem;letter-spacing:.6px;text-transform:uppercase;line-height:1.2">Bonus inclus</strong>
+          </div>
+          <p style="margin:3px 0 8px 30px;color:#C8541E;font-size:.7rem;letter-spacing:.5px;font-weight:600;text-transform:uppercase;line-height:1.2">
+            Valeur 30 CHF / mois
+          </p>
+          <p style="margin:0 0 4px;font-size:.95rem;font-weight:700;color:var(--gray-900);line-height:1.3">
+            Accès offert à Nutrium
+          </p>
+          <p style="margin:0;font-size:.84rem;color:var(--gray-700);line-height:1.5">
+            L'application professionnelle de suivi nutritionnel utilisée par les diététiciens : analyse de vos repas, suivi de votre progression et partage direct de vos données avec votre nutritionniste.
+          </p>
+        </div>
+
         <div class="saving-badge">Économisez 25 CHF vs. achat séparé</div>
-        <a href="https://calendly.com/cedrian/dxa-ig" rel="noopener noreferrer" target="_blank" class="btn-primary" style="display:block;text-align:center" onclick="fbq('track','InitiateCheckout')">
+        <a href="#" class="btn-primary" style="display:block;text-align:center" onclick="return openCalendly('https://calendly.com/cedrian/packdxanutri')">
           Réserver ce pack
         </a>
       </div>
@@ -882,7 +1016,7 @@
           <li><span class="check">✓</span> 50 CHF d'économie sur l'ensemble des scans</li>
         </ul>
         <div class="saving-badge">Soit 83 CHF/scan — économisez 50 CHF</div>
-        <a href="https://calendly.com/cedrian/dxa-ig" rel="noopener noreferrer" target="_blank" class="btn-secondary" style="display:block;text-align:center" onclick="fbq('track','InitiateCheckout')">
+        <a href="#" class="btn-secondary" style="display:block;text-align:center" onclick="return openCalendly('https://calendly.com/cedrian/pack3dxa')">
           Réserver ce pack
         </a>
       </div>
@@ -970,8 +1104,8 @@
       📅&nbsp; Prochains créneaux disponibles : cette semaine
     </div>
 
-    <a href=""
-       onclick="fbq('track','InitiateCheckout');Calendly.initPopupWidget({url:'https://calendly.com/cedrian/dxa-ig?hide_gdpr_banner=1&primary_color=FF6535'});return false;"
+    <a href="#"
+       onclick="return openCalendly('https://calendly.com/cedrian/dxa-ig')"
        class="btn-primary"
        style="font-size:1.1rem;padding:20px 52px;display:inline-block">
       Choisir mon créneau &amp; réserver&nbsp;→
@@ -981,15 +1115,26 @@
   </div>
 </section>
 
+<!-- ═══════════════════════════════ STICKY BOTTOM CTA (mobile) ═══════════════════════════════ -->
+<div class="sticky-bottom-cta" aria-hidden="true">
+  <a href="#" onclick="return openCalendly('https://calendly.com/cedrian/dxa-ig')" aria-label="Réserver mon scan DXA">
+    Réserver mon scan — dès 100 CHF&nbsp;→
+  </a>
+</div>
+
 <!-- ═══════════════════════════════ FOOTER ═══════════════════════════════ -->
 <footer>
-  <p>© 2026 DXAscanLausanne &nbsp;·&nbsp; Centre médical MotionLab &nbsp;·&nbsp; Chemin du Petit-Flon 29, 1052 Le Mont-sur-Lausanne</p>
-  <p style="margin-top:6px">
-    <a href="tel:0793479464">079 347 94 64</a> &nbsp;·&nbsp;
-    <a href="mailto:cbouassaf@motion-lab.ch">cbouassaf@motion-lab.ch</a> &nbsp;·&nbsp;
-    <a href="#" onclick="openModal('modal-privacy');return false;">Politique de confidentialité</a> &nbsp;·&nbsp;
-    <a href="#" onclick="openModal('modal-legal');return false;">Mentions légales</a>
-  </p>
+  <div class="footer-inner">
+    <p class="footer-strong">DXAscanLausanne · Centre médical MotionLab</p>
+    <p>Chemin du Petit-Flon 29 · 1052 Le Mont-sur-Lausanne</p>
+    <p>
+      <a href="tel:0793479464">079&nbsp;347&nbsp;94&nbsp;64</a><span class="footer-sep">·</span><a href="mailto:cbouassaf@motion-lab.ch">cbouassaf@motion-lab.ch</a>
+    </p>
+    <p>
+      <a href="#" onclick="openModal('modal-privacy');return false;">Politique de confidentialité</a><span class="footer-sep">·</span><a href="#" onclick="openModal('modal-legal');return false;">Mentions légales</a>
+    </p>
+    <p style="margin-top:14px;opacity:.5;font-size:.72rem">© 2026 DXAscanLausanne — Tous droits réservés</p>
+  </div>
 </footer>
 
 <!-- ═══════════════════════════════ MODAL POLITIQUE DE CONFIDENTIALITÉ ═══════════════════════════════ -->
@@ -1060,6 +1205,191 @@
 
 <!-- ═══════════════════════════════ SCRIPTS ═══════════════════════════════ -->
 <script>
+  /* ══════════════════════════════════════════════════════════════════
+     CALENDLY — Stratégie de chargement accéléré (safe pour le pixel)
+     ══════════════════════════════════════════════════════════════════
+     IMPORTANT : on N'UTILISE PAS d'iframe invisible Calendly pour le pré-warming
+     car cela ferait fire les événements pixel intégrés à Calendly
+     (invitee_event_type_page, etc.) chez chaque visiteur, ce qui polluerait
+     le pixel et biaiserait l'apprentissage de l'algorithme Meta.
+
+     Techniques utilisées (toutes safe) :
+       1. <link rel="prefetch"> dans <head> → télécharge le HTML SANS l'exécuter
+       2. Onhover preload → précharge l'URL spécifique au survol du bouton
+       3. openCalendly inchangé → fire InitiateCheckout normalement
+  ══════════════════════════════════════════════════════════════════ */
+
+  /* ── Préchargement intelligent (desktop ET mobile) ──
+        Combine 2 déclencheurs :
+        1. Intersection Observer : préchargement dès qu'un bouton devient
+           visible à l'écran (200px avant) → marche aussi bien sur mobile
+           que desktop, donne plusieurs secondes d'avance
+        2. Onhover/touchstart : déclenche immédiatement si pas encore fait
+        Le rel="prefetch" télécharge juste le HTML, n'exécute pas le JS,
+        donc AUCUN événement pixel n'est fire en background. */
+  document.addEventListener('DOMContentLoaded', function() {
+    var preloaded = {};
+
+    function preloadUrl(url) {
+      if (!url || preloaded[url]) return;
+      preloaded[url] = true;
+      var link = document.createElement('link');
+      link.rel = 'prefetch';
+      link.href = url;
+      link.as = 'document';
+      document.head.appendChild(link);
+    }
+
+    function getCalendlyUrl(el) {
+      var match = (el.getAttribute('onclick') || '').match(/openCalendly\('([^']+)'\)/);
+      return match ? match[1] : null;
+    }
+
+    var buttons = document.querySelectorAll('[onclick*="openCalendly"]');
+
+    // 1. Préchargement par visibilité (mobile + desktop) — gain de plusieurs secondes
+    if ('IntersectionObserver' in window) {
+      var observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (!entry.isIntersecting) return;
+          preloadUrl(getCalendlyUrl(entry.target));
+          observer.unobserve(entry.target);
+        });
+      }, { rootMargin: '200px' });
+      buttons.forEach(function(el) { observer.observe(el); });
+    } else {
+      // Fallback : précharge tout immédiatement si pas d'IntersectionObserver
+      buttons.forEach(function(el) { preloadUrl(getCalendlyUrl(el)); });
+    }
+
+    // 2. Préchargement à l'intent (au cas où visibilité non déclenchée)
+    buttons.forEach(function(el) {
+      var trigger = function() { preloadUrl(getCalendlyUrl(el)); };
+      el.addEventListener('mouseenter', trigger, { once: true, passive: true });
+      el.addEventListener('touchstart', trigger, { once: true, passive: true });
+      el.addEventListener('focus', trigger, { once: true, passive: true });
+    });
+  });
+
+  /* ── Calendly popup helper ── */
+  function openCalendly(url) {
+    // Double envoi (Pixel + CAPI) avec déduplication
+    metaTrack('InitiateCheckout');
+    Calendly.initPopupWidget({ url: url + '?hide_gdpr_banner=1&primary_color=FF6535' });
+    return false;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════
+     STICKY HEADER & STICKY BOTTOM CTA — Hide on scroll-down (mobile)
+     ══════════════════════════════════════════════════════════════════
+     Pattern : scroll-down → cache nav top + montre bottom CTA
+              scroll-up   → montre nav top + cache bottom CTA
+     Garde-fous :
+       - Mobile uniquement (≤768px)
+       - Threshold 300px (pas de trigger dans le hero)
+       - Pas affiché quand la section #offres est visible (évite doublon)
+       - rAF debounce (zéro impact perf)
+  ══════════════════════════════════════════════════════════════════ */
+  (function setupStickyBehavior() {
+    var lastScrollY = window.scrollY;
+    var ticking = false;
+    var THRESHOLD = 300;        // ne déclencher qu'après 300px de scroll
+    var MIN_DELTA = 6;          // delta minimum pour éviter les micro-mouvements
+    var pricingVisible = false; // mis à jour par IntersectionObserver
+    var body = document.body;
+
+    function isMobile() { return window.innerWidth <= 768; }
+
+    function update() {
+      ticking = false;
+
+      if (!isMobile()) {
+        body.classList.remove('nav-hidden', 'bottom-cta-visible');
+        return;
+      }
+
+      var currentScrollY = window.scrollY;
+      var delta = currentScrollY - lastScrollY;
+
+      // Toujours montrer la nav et cacher le CTA bottom dans le top de la page
+      if (currentScrollY < THRESHOLD) {
+        body.classList.remove('nav-hidden', 'bottom-cta-visible');
+      } else if (Math.abs(delta) > MIN_DELTA) {
+        if (delta > 0) {
+          // Scroll DOWN → cacher nav, montrer bottom CTA (sauf si pricing visible)
+          body.classList.add('nav-hidden');
+          if (!pricingVisible) body.classList.add('bottom-cta-visible');
+          else body.classList.remove('bottom-cta-visible');
+        } else {
+          // Scroll UP → montrer nav, cacher bottom CTA
+          body.classList.remove('nav-hidden', 'bottom-cta-visible');
+        }
+      }
+
+      lastScrollY = currentScrollY;
+    }
+
+    window.addEventListener('scroll', function() {
+      if (!ticking) {
+        requestAnimationFrame(update);
+        ticking = true;
+      }
+    }, { passive: true });
+
+    // Re-évaluer au resize (rotation, ouverture clavier, etc.)
+    window.addEventListener('resize', function() {
+      if (!ticking) {
+        requestAnimationFrame(update);
+        ticking = true;
+      }
+    }, { passive: true });
+
+    // Masquer le bottom CTA quand la section pricing est visible (évite doublon)
+    if ('IntersectionObserver' in window) {
+      var pricingSection = document.getElementById('offres');
+      if (pricingSection) {
+        var observer = new IntersectionObserver(function(entries) {
+          entries.forEach(function(entry) {
+            pricingVisible = entry.isIntersecting;
+            if (pricingVisible) {
+              body.classList.remove('bottom-cta-visible');
+            }
+          });
+        }, { rootMargin: '-100px 0px -100px 0px' }); // 100px de marge haut/bas
+        observer.observe(pricingSection);
+      }
+    }
+  })();
+
+  /* ── Tracking sur complétion de réservation Calendly ── */
+  window.addEventListener('message', function(e) {
+    if (e.origin !== 'https://calendly.com') return;
+    if (e.data && e.data.event === 'calendly.event_scheduled') {
+      // Si Calendly fournit l'email/nom de l'invité (selon version API),
+      // on les passe à CAPI hashés pour MAXIMISER le match rate
+      var userData = {};
+      try {
+        var payload = e.data.payload || {};
+        var invitee = payload.invitee || {};
+        if (invitee.email) userData.email = invitee.email;
+        if (invitee.name) {
+          var parts = invitee.name.trim().split(/\s+/);
+          userData.first_name = parts[0];
+          if (parts.length > 1) userData.last_name = parts.slice(1).join(' ');
+        }
+      } catch (err) { /* silent */ }
+
+      // Schedule = événement standard Meta, optimisable comme objectif de campagne
+      metaTrack('Schedule', { currency: 'CHF', value: 100 }, userData);
+
+      // Custom event historique (rétro-compatibilité avec audiences/conversions existantes)
+      var eventId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString();
+      if (window.fbq) {
+        fbq('trackCustom', 'invitee_meeting_scheduled', {}, { eventID: eventId });
+      }
+    }
+  });
+
   function toggleFaq(el) {
     el.parentElement.classList.toggle('open');
   }
