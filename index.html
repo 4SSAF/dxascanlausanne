@@ -1033,10 +1033,14 @@
       <h2>Choisissez votre créneau</h2>
       <p style="color:var(--gray-600);margin-top:10px;font-size:.95rem">Confirmation immédiate par e-mail · Centre MotionLab, Le Mont-sur-Lausanne</p>
     </div>
-    <div id="cal-stage" style="position:relative;min-width:320px;width:100%;height:1100px;margin-top:24px">
-      <div class="cal-pane" data-cal="https://calendly.com/cedrian/dxa-ig" style="position:absolute;inset:0;opacity:1;z-index:2;transition:opacity .2s ease"><div class="cal-loading">Chargement du calendrier…</div></div>
-      <div class="cal-pane" data-cal="https://calendly.com/cedrian/packdxanutri" style="position:absolute;inset:0;opacity:0;z-index:1;pointer-events:none;transition:opacity .2s ease"><div class="cal-loading">Chargement du calendrier…</div></div>
-      <div class="cal-pane" data-cal="https://calendly.com/cedrian/pack3dxa" style="position:absolute;inset:0;opacity:0;z-index:1;pointer-events:none;transition:opacity .2s ease"><div class="cal-loading">Chargement du calendrier…</div></div>
+    <div style="text-align:center;margin-top:22px">
+      <span style="font-size:.78rem;color:#718096;letter-spacing:.05em;text-transform:uppercase">Vous réservez</span><br>
+      <span id="cal-selected" style="display:inline-block;margin-top:6px;background:#FFF0EA;color:#0A4B6E;font-weight:700;font-size:1.02rem;padding:8px 20px;border-radius:999px">Scan DXA Standard</span>
+    </div>
+    <div id="cal-stage" style="position:relative;min-width:320px;width:100%;height:1100px;margin-top:18px">
+      <div class="cal-pane" data-cal="https://calendly.com/cedrian/dxa-ig" data-name="Scan DXA Standard" style="position:absolute;inset:0;opacity:1;z-index:2;transition:opacity .2s ease"><div class="cal-loading">Chargement du calendrier…</div></div>
+      <div class="cal-pane" data-cal="https://calendly.com/cedrian/packdxanutri" data-name="DXA + Bilan nutritionnel" style="position:absolute;inset:0;opacity:0;z-index:1;pointer-events:none;transition:opacity .2s ease"><div class="cal-loading">Chargement du calendrier…</div></div>
+      <div class="cal-pane" data-cal="https://calendly.com/cedrian/pack3dxa" data-name="Pack 3 DXA" style="position:absolute;inset:0;opacity:0;z-index:1;pointer-events:none;transition:opacity .2s ease"><div class="cal-loading">Chargement du calendrier…</div></div>
     </div>
   </div>
 </section>
@@ -1079,6 +1083,8 @@
     var target = panes[0];
     panes.forEach(function (p) { if (p.getAttribute('data-cal') === base) target = p; });
     initPane(target); /* filet : init à la demande si pas encore prêt */
+    var lbl = document.getElementById('cal-selected');
+    if (lbl) lbl.textContent = target.getAttribute('data-name') || 'Scan DXA';
     panes.forEach(function (p) {
       var on = (p === target);
       p.style.opacity = on ? '1' : '0';
