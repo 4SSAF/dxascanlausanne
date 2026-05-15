@@ -1025,7 +1025,7 @@
   </div>
 </section>
 
-<!-- ═══════════════════════════════ RÉSERVATION (Calendly inline) ═══════════════════════════════ -->
+<!-- ═══════════════════════════════ RÉSERVATION (Calendly inline — 3 panneaux préchargés) ═══════════════════════════════ -->
 <section class="section" id="reserver" style="background:#F7F9FC">
   <div class="container">
     <div class="text-center">
@@ -1033,38 +1033,59 @@
       <h2>Choisissez votre créneau</h2>
       <p style="color:var(--gray-600);margin-top:10px;font-size:.95rem">Confirmation immédiate par e-mail · Centre MotionLab, Le Mont-sur-Lausanne</p>
     </div>
-    <div id="cal-embed" style="min-width:320px;width:100%;height:1100px;margin-top:24px"></div>
+    <div id="cal-stage" style="position:relative;min-width:320px;width:100%;height:1100px;margin-top:24px">
+      <div class="cal-pane" data-cal="https://calendly.com/cedrian/dxa-ig" style="position:absolute;inset:0;opacity:1;z-index:2;transition:opacity .2s ease"><div class="cal-loading">Chargement du calendrier…</div></div>
+      <div class="cal-pane" data-cal="https://calendly.com/cedrian/packdxanutri" style="position:absolute;inset:0;opacity:0;z-index:1;pointer-events:none;transition:opacity .2s ease"><div class="cal-loading">Chargement du calendrier…</div></div>
+      <div class="cal-pane" data-cal="https://calendly.com/cedrian/pack3dxa" style="position:absolute;inset:0;opacity:0;z-index:1;pointer-events:none;transition:opacity .2s ease"><div class="cal-loading">Chargement du calendrier…</div></div>
+    </div>
   </div>
 </section>
+<style>
+  .cal-loading{display:flex;align-items:center;justify-content:center;height:100%;color:#718096;font-size:.95rem}
+</style>
 <script>
 (function () {
-  var EMBED = document.getElementById('cal-embed');
-  if (!EMBED) return;
-  var DEFAULT_URL = 'https://calendly.com/cedrian/dxa-ig?hide_gdpr_banner=1&primary_color=FF6535';
-  window.__calCurrent = null;
-  window.__calShow = function (url) {
-    function go() {
-      if (window.__calCurrent === url && EMBED.querySelector('iframe')) return;
-      EMBED.innerHTML = '';
-      window.Calendly.initInlineWidget({ url: url, parentElement: EMBED });
-      window.__calCurrent = url;
+  var PARAMS = '?hide_gdpr_banner=1&primary_color=FF6535';
+  var panes = [].slice.call(document.querySelectorAll('#cal-stage .cal-pane'));
+  if (!panes.length) return;
+
+  function initPane(p) {
+    if (p.__inited) return;
+    if (!window.Calendly) {
+      var t = setInterval(function () { if (window.Calendly) { clearInterval(t); initPane(p); } }, 100);
+      return;
     }
-    if (window.Calendly) return go();
-    var t = setInterval(function () { if (window.Calendly) { clearInterval(t); go(); } }, 100);
-  };
-  /* Préchargement : charge le calendrier par défaut quand la section approche (~1,5 écran avant) */
-  if ('IntersectionObserver' in window) {
-    var io = new IntersectionObserver(function (e) {
-      if (e[0].isIntersecting) { window.__calShow(DEFAULT_URL); io.disconnect(); }
-    }, { rootMargin: '1500px 0px' });
-    io.observe(EMBED);
-  } else {
-    window.__calShow(DEFAULT_URL);
+    p.__inited = true;
+    p.innerHTML = '';
+    window.Calendly.initInlineWidget({ url: p.getAttribute('data-cal') + PARAMS, parentElement: p });
   }
-  /* Filet de sécurité : charge de toute façon 4 s après le load complet */
+
+  function idle(fn, timeout) {
+    if (window.requestIdleCallback) requestIdleCallback(fn, { timeout: timeout });
+    else setTimeout(fn, timeout);
+  }
+
+  /* 1) Éager : le calendrier par défaut (dxa-ig) dès maintenant */
+  initPane(panes[0]);
+  /* 2) Décalé en idle après le load : les 2 autres packs, sans janker le rendu initial */
   window.addEventListener('load', function () {
-    setTimeout(function () { if (!window.__calCurrent) window.__calShow(DEFAULT_URL); }, 4000);
+    idle(function () { initPane(panes[1]); }, 1800);
+    idle(function () { initPane(panes[2]); }, 3600);
   });
+
+  /* API d'affichage : bascule instantanée (opacité), aucun rechargement */
+  window.__calShow = function (url) {
+    var base = String(url).split('?')[0];
+    var target = panes[0];
+    panes.forEach(function (p) { if (p.getAttribute('data-cal') === base) target = p; });
+    initPane(target); /* filet : init à la demande si pas encore prêt */
+    panes.forEach(function (p) {
+      var on = (p === target);
+      p.style.opacity = on ? '1' : '0';
+      p.style.zIndex = on ? '2' : '1';
+      p.style.pointerEvents = on ? 'auto' : 'none';
+    });
+  };
 })();
 </script>
 
