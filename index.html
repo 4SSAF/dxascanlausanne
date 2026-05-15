@@ -1025,6 +1025,49 @@
   </div>
 </section>
 
+<!-- ═══════════════════════════════ RÉSERVATION (Calendly inline) ═══════════════════════════════ -->
+<section class="section" id="reserver" style="background:#F7F9FC">
+  <div class="container">
+    <div class="text-center">
+      <span class="section-label">Réservez en ligne</span>
+      <h2>Choisissez votre créneau</h2>
+      <p style="color:var(--gray-600);margin-top:10px;font-size:.95rem">Confirmation immédiate par e-mail · Centre MotionLab, Le Mont-sur-Lausanne</p>
+    </div>
+    <div id="cal-embed" style="min-width:320px;width:100%;height:1100px;margin-top:24px"></div>
+  </div>
+</section>
+<script>
+(function () {
+  var EMBED = document.getElementById('cal-embed');
+  if (!EMBED) return;
+  var DEFAULT_URL = 'https://calendly.com/cedrian/dxa-ig?hide_gdpr_banner=1&primary_color=FF6535';
+  window.__calCurrent = null;
+  window.__calShow = function (url) {
+    function go() {
+      if (window.__calCurrent === url && EMBED.querySelector('iframe')) return;
+      EMBED.innerHTML = '';
+      window.Calendly.initInlineWidget({ url: url, parentElement: EMBED });
+      window.__calCurrent = url;
+    }
+    if (window.Calendly) return go();
+    var t = setInterval(function () { if (window.Calendly) { clearInterval(t); go(); } }, 100);
+  };
+  /* Préchargement : charge le calendrier par défaut quand la section approche (~1,5 écran avant) */
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (e) {
+      if (e[0].isIntersecting) { window.__calShow(DEFAULT_URL); io.disconnect(); }
+    }, { rootMargin: '1500px 0px' });
+    io.observe(EMBED);
+  } else {
+    window.__calShow(DEFAULT_URL);
+  }
+  /* Filet de sécurité : charge de toute façon 4 s après le load complet */
+  window.addEventListener('load', function () {
+    setTimeout(function () { if (!window.__calCurrent) window.__calShow(DEFAULT_URL); }, 4000);
+  });
+})();
+</script>
+
 <!-- ═══════════════════════════════ FAQ ═══════════════════════════════ -->
 <section class="section" id="faq">
   <div class="container">
@@ -1271,11 +1314,14 @@
     });
   });
 
-  /* ── Calendly popup helper ── */
+  /* ── Calendly inline helper (rapide : embed préchargé au lieu du popup lent) ── */
   function openCalendly(url) {
-    // Double envoi (Pixel + CAPI) avec déduplication
+    // Tracking inchangé (Pixel + CAPI dédup via metaTrack/eventID)
     metaTrack('InitiateCheckout');
-    Calendly.initPopupWidget({ url: url + '?hide_gdpr_banner=1&primary_color=FF6535' });
+    var full = url + '?hide_gdpr_banner=1&primary_color=FF6535';
+    if (window.__calShow) window.__calShow(full);
+    var sec = document.getElementById('reserver');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
     return false;
   }
 
