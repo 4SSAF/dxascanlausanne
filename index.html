@@ -1045,7 +1045,7 @@
 </style>
 <script>
 (function () {
-  var PARAMS = '?hide_gdpr_banner=1&primary_color=FF6535';
+  var PARAMS = '?hide_gdpr_banner=1&hide_event_type_details=1&primary_color=FF6535';
   var panes = [].slice.call(document.querySelectorAll('#cal-stage .cal-pane'));
   if (!panes.length) return;
 
@@ -1339,7 +1339,7 @@
   function openCalendly(url) {
     // Tracking inchangé (Pixel + CAPI dédup via metaTrack/eventID)
     metaTrack('InitiateCheckout');
-    var full = url + '?hide_gdpr_banner=1&primary_color=FF6535';
+    var full = url + '?hide_gdpr_banner=1&hide_event_type_details=1&primary_color=FF6535';
     if (window.__calShow) window.__calShow(full);
     var sec = document.getElementById('reserver');
     if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
