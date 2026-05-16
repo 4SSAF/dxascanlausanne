@@ -299,8 +299,8 @@
       background:#fff;border-top:1px solid #E2E8F0;
       /* padding-bottom utilise max() pour garantir au minimum 12px
          et ajouter la safe-area home indicator iPhone si présente */
-      padding:10px 14px;
-      padding-bottom:max(12px, env(safe-area-inset-bottom));
+      padding:0;
+      padding-bottom:env(safe-area-inset-bottom);
       box-shadow:0 -6px 20px rgba(0,0,0,.08);
       transform:translateY(100%);
       transition:transform .28s cubic-bezier(.4,0,.2,1);
@@ -311,8 +311,8 @@
       display:flex;align-items:center;justify-content:center;
       width:100%;padding:14px 20px;
       background:var(--accent);color:#fff;
-      border-radius:12px;font-weight:700;font-size:.98rem;
-      text-decoration:none;box-shadow:0 4px 12px rgba(238,124,58,.3)
+      border-radius:0;font-weight:700;font-size:1rem;
+      text-decoration:none
     }
     .sticky-bottom-cta a:active{transform:scale(.98)}
     body.bottom-cta-visible .sticky-bottom-cta{transform:translateY(0)}
