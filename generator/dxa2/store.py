@@ -62,6 +62,10 @@ def _exams_from_data(data) -> dict:
         ensure(_iso(h["date"]))["bf_pct"] = h.get("value")
     for h in data.get("lean_history", []):
         ensure(_iso(h["date"]))["lean_g"] = h.get("value")
+    for h in data.get("fat_history", []):
+        ensure(_iso(h["date"]))["fat_g"] = h.get("value")
+    for h in data.get("mass_history", []):
+        ensure(_iso(h["date"]))["mass_g"] = h.get("value")
     # instantané le plus récent
     d = data.get("latest_exam_date")
     s = data.get("snapshot", {})
@@ -99,7 +103,7 @@ def merge(data, path=None, write=True):
 
     # reconstruire les historiques depuis l'union stockée
     dates = sorted(rec["exams"].keys())
-    bmd_h, pct_h, lean_h = [], [], []
+    bmd_h, pct_h, lean_h, fat_h, mass_h = [], [], [], [], []
     for diso in dates:
         e = rec["exams"][diso]
         d = _dt.date.fromisoformat(diso)
@@ -109,10 +113,16 @@ def merge(data, path=None, write=True):
             pct_h.append({"date": d, "value": e["bf_pct"]})
         if e.get("lean_g") is not None:
             lean_h.append({"date": d, "value": e["lean_g"]})
+        if e.get("fat_g") is not None:
+            fat_h.append({"date": d, "value": e["fat_g"]})
+        if e.get("mass_g") is not None:
+            mass_h.append({"date": d, "value": e["mass_g"]})
 
     data["bmd_history"] = bmd_h or data.get("bmd_history", [])
     data["pct_history"] = pct_h or data.get("pct_history", [])
     data["lean_history"] = lean_h or data.get("lean_history", [])
+    data["fat_history"] = fat_h or data.get("fat_history", [])
+    data["mass_history"] = mass_h or data.get("mass_history", [])
     n = len(dates)
     data["n_exams"] = max(data.get("n_exams", 0), n)
     return data, n

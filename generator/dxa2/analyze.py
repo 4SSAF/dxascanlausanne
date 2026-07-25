@@ -193,6 +193,7 @@ def analyze(data: dict) -> dict:
     out["has_history"] = data["n_exams"] > 1 and len(data.get("bmd_history", [])) > 1
     out["trends"] = _trends(data)
     out["velocity"] = _velocity(data)
+    out["since_last"] = _since_last(data)
 
     # métabolisme (BMR Cunningham) + nutrition par défaut
     out["metabolism"] = metabolism(snap, demo["weight_kg"])
@@ -267,6 +268,60 @@ def _trends(data):
         "bf": [{"date": h["date"], "value": h["value"]} for h in data.get("pct_history", [])],
         "lean": series(data.get("lean_history", []), 1000.0),
     }
+
+
+def _since_last(data):
+    """Comparatif entre les deux examens les plus récents (None si <2)."""
+    def last_two(hist, div=1.0):
+        pts = [h for h in hist if h.get("date")]
+        if len(pts) < 2:
+            return None
+        a, b = pts[-2], pts[-1]
+        return (a["date"], round(a["value"] / div, 3), b["date"], round(b["value"] / div, 3))
+
+    specs = [  # (clé histo, div, label, unité, décimales, sens_favorable)
+        ("mass_history", 1000.0, "Poids total", "kg", 1, "neutre"),
+        ("pct_history", 1.0, "% masse grasse", "%", 1, "bas"),
+        ("fat_history", 1000.0, "Masse grasse", "kg", 1, "bas"),
+        ("lean_history", 1000.0, "Masse maigre", "kg", 1, "haut"),
+    ]
+    rows, dates = [], None
+    for key, div, label, unit, dec, favor in specs:
+        lt = last_two(data.get(key, []), div)
+        if not lt:
+            continue
+        d0, v0, d1, v1 = lt
+        v0, v1 = round(v0, dec), round(v1, dec)   # cohérence affichage/delta
+        dates = (d0, d1)
+        delta = round(v1 - v0, dec)
+        if abs(delta) < (0.2 if unit == "kg" else 0.3):
+            verdict = "neutral"
+        elif favor == "neutre":
+            verdict = "neutral"
+        elif (favor == "bas" and delta < 0) or (favor == "haut" and delta > 0):
+            verdict = "good"
+        else:
+            verdict = "warn"
+        rows.append({"label": label, "unit": unit, "prev": v0, "curr": v1,
+                     "delta": delta, "dir": "up" if delta > 0 else ("down" if delta < 0 else "flat"),
+                     "verdict": verdict, "dec": dec})
+
+    # DMO (avec seuil de significativité)
+    bmd = [h for h in data.get("bmd_history", []) if h.get("date")]
+    if len(bmd) >= 2:
+        a, b = bmd[-2], bmd[-1]
+        dates = (a["date"], b["date"])
+        delta = round(b["bmd"] - a["bmd"], 3)
+        sig = abs(delta) >= R.BMD_LSC
+        verdict = "neutral" if not sig else ("good" if delta > 0 else "warn")
+        rows.append({"label": "Densité osseuse", "unit": "g/cm²", "prev": a["bmd"], "curr": b["bmd"],
+                     "delta": delta, "dir": "up" if delta > 0 else ("down" if delta < 0 else "flat"),
+                     "verdict": verdict, "dec": 3, "sig": sig})
+
+    if not rows or not dates:
+        return None
+    months = round((dates[1] - dates[0]).days / 30.44, 1)
+    return {"prev_date": dates[0], "curr_date": dates[1], "months": months, "rows": rows}
 
 
 def _velocity(data):

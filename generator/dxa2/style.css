@@ -297,3 +297,20 @@ section{margin-top:30px}
 
 /* logo Motion LAB dans l'en-tête */
 .brand .mark-img{width:42px;height:42px;border-radius:10px;display:block;object-fit:contain}
+
+/* ============ DEPUIS LA DERNIÈRE FOIS ============ */
+.since-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.since-lead{font-size:14.5px;color:var(--ink);font-weight:500;line-height:1.5}
+.since-when{font-size:11.5px;color:var(--muted);font-family:var(--font-mono);white-space:nowrap}
+.since-grid{display:flex;flex-direction:column;margin-top:12px}
+.since-row{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:14px;
+  padding:11px 2px;border-top:1px solid var(--hairline)}
+.since-row:first-child{border-top:none}
+.since-row .sl{font-size:13.5px;font-weight:600}
+.since-row .sv{font-family:var(--font-mono);font-size:12.5px;color:var(--ink-2);text-align:right}
+.delta-chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:13px;
+  font-weight:700;padding:5px 12px;border-radius:999px;min-width:104px;justify-content:center}
+.delta-chip.good{background:var(--good-bg);color:var(--good)}
+.delta-chip.warn{background:var(--warn-bg);color:var(--warn)}
+.delta-chip.neutral{background:var(--inset);color:var(--ink-2)}
+.since-sig{font-size:10px;font-family:var(--font-mono);color:var(--good);margin-left:6px}

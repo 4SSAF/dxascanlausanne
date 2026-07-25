@@ -279,7 +279,7 @@ def parse_pdf(path: str) -> dict:
     # snapshots datés par page
     bmd_snaps, comp_snaps, idx_snaps = [], [], []
     bmd_history = []
-    fat_hist, pct_hist, lean_hist = [], [], []
+    fat_hist, pct_hist, lean_hist, mass_hist = [], [], [], []
 
     def _longest(cur, new):
         return new if len(new) > len(cur) else cur
@@ -312,6 +312,7 @@ def parse_pdf(path: str) -> dict:
             fat_hist = _longest(fat_hist, _parse_comp_history(lines, "Résultats Masse grasse totale", 2000, 60000))
             pct_hist = _longest(pct_hist, _parse_comp_history(lines, "Résultats totaux % graisse corps", 3, 60))
             lean_hist = _longest(lean_hist, _parse_comp_history(lines, "Total Lean Mass Results", 20000, 90000))
+            mass_hist = _longest(mass_hist, _parse_comp_history(lines, "Résultats Masse totale", 20000, 200000))
 
     def latest(snaps):
         dated = [s for s in snaps if s.get("date")]
@@ -349,6 +350,7 @@ def parse_pdf(path: str) -> dict:
     data["pct_history"] = pct_hist
     data["lean_history"] = lean_hist
     data["fat_history"] = fat_hist
+    data["mass_history"] = mass_hist
     data["n_exams"] = max(len(data["exam_dates"]), len(bmd_history))
     return data
 

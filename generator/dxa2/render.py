@@ -496,7 +496,9 @@ def _coach_panel(A):
     """Panneau de configuration coach — écran seulement, masqué au PDF."""
     has_nut = bool(A.get("metabolism"))
     has_proj = bool(A["snap"].get("bf_pct") and A["snap"].get("lean_g"))
-    mods = [("bioage", "Âge biologique", True), ("metabolism", "Métabolisme (BMR)", has_nut),
+    has_since = bool(A.get("since_last"))
+    mods = [("bioage", "Âge biologique", True), ("since", "Depuis la dernière fois", has_since),
+            ("metabolism", "Métabolisme (BMR)", has_nut),
             ("nutrition", "Besoins nutritionnels", has_nut), ("meals", "Répartition des repas", has_nut),
             ("projector", "Projecteur d'objectif", has_proj), ("trends", "Évolution / tendances", True)]
     checks = ""
@@ -602,6 +604,47 @@ def _meals(A):
     <div class="card">
       <div class="meals-grid" id="meals-container"></div>
       <div id="mps-note" style="margin-top:14px"></div>
+    </div></section>'''
+
+
+def _since(A):
+    s = A.get("since_last")
+    if not s:
+        return ""
+    arrows = {"up": "▲", "down": "▼", "flat": "■"}
+    rows_html = ""
+    goods, warns = [], []
+    for r in s["rows"]:
+        sign = "+" if r["delta"] > 0 else ""
+        dtxt = f'{sign}{fr(r["delta"], r["dec"])} {r["unit"]}'
+        sig = '<span class="since-sig">significatif</span>' if r.get("sig") else ""
+        rows_html += (f'<div class="since-row"><span class="sl">{esc(r["label"])}</span>'
+                      f'<span class="sv">{fr(r["prev"], r["dec"])} → {fr(r["curr"], r["dec"])} {esc(r["unit"])}</span>'
+                      f'<span class="delta-chip {r["verdict"]}">{arrows[r["dir"]]} {dtxt}{sig}</span></div>')
+        short = f'{r["label"].lower()} {dtxt}'
+        if r["verdict"] == "good":
+            goods.append(short)
+        elif r["verdict"] == "warn":
+            warns.append(short)
+    lead = f'En {fr(s["months"])} mois'
+    if goods:
+        lead += " : " + ", ".join(goods)
+    if warns:
+        lead += (" — à surveiller : " if not goods else " ; à surveiller : ") + ", ".join(warns)
+    if not goods and not warns:
+        lead += " : composition globalement stable."
+    else:
+        lead += "."
+    when = f'{_date_fr(s["prev_date"])} → {_date_fr(s["curr_date"])}'
+    return f'''<section data-mod="since">
+    <div class="sec-head"><span class="idx">·</span><h2>Depuis la dernière fois</h2>
+      <span class="note">Ce qui a changé entre les deux derniers examens.</span></div>
+    <div class="card">
+      <div class="since-head"><p class="since-lead">{esc(lead)}</p><span class="since-when">{when}</span></div>
+      <div class="since-grid">{rows_html}</div>
+      <p style="font-size:11.5px;color:var(--muted);margin-top:12px;line-height:1.5">
+        Le poids seul ne dit pas tout : le DXA distingue ce qui vient du <b>gras</b>, du <b>muscle</b> et de l'<b>os</b>.
+        Seuil de variation significative de la densité osseuse : ±0,014 g/cm².</p>
     </div></section>'''
 
 
@@ -795,6 +838,7 @@ def render(A: dict, img_skeletal=None, img_thermal=None) -> str:
         _coach_panel(A),
         _hero(A),
         _composition(A, img_skeletal, img_thermal),
+        _since(A),
         _muscle(A),
         _fat(A),
         _bone(A),
