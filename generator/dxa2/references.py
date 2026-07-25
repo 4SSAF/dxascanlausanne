@@ -76,3 +76,38 @@ def zones_to_widths(zones, lo, hi):
     """Convertit des zones (v0, v1, token) en (largeur %, token) sur l'échelle."""
     span = hi - lo
     return [((v1 - v0) / span * 100.0, tok) for (v0, v1, tok) in zones]
+
+
+# ---------------------------------------------------------------------------
+# Métabolisme & nutrition (modules optionnels)
+# ---------------------------------------------------------------------------
+# BMR — Cunningham et al. (1991) : RMR = 500 + 22 x masse maigre (FFM, kg)
+CUNNINGHAM = dict(base=500.0, coef=22.0)
+
+# Niveaux d'activité (PAL) appliqués au BMR pour estimer la DEJ (TDEE)
+ACTIVITY = [
+    ("sedentaire", "Sédentaire (bureau)", 1.20),
+    ("leger", "Léger (1–3 séances/sem)", 1.375),
+    ("modere", "Modéré (3–5 séances/sem)", 1.55),
+    ("intense", "Intense (6–7 séances/sem)", 1.725),
+    ("extreme", "Très intense (2×/j, physique)", 1.90),
+]
+ACTIVITY_DEFAULT = "modere"
+
+# Ajustement calorique selon l'objectif
+GOALS = [
+    ("deficit", "Déficit (perte de gras)", -0.20),
+    ("maintien", "Maintien", 0.0),
+    ("surplus", "Surplus (prise de muscle)", 0.10),
+]
+GOAL_DEFAULT = "maintien"
+
+# Protéines cibles (g/kg de poids) selon l'objectif — Morton 2018 ; Helms 2014 (déficit)
+PROTEIN_G_PER_KG = dict(deficit=2.2, maintien=1.8, surplus=1.8)
+FAT_G_PER_KG = 0.9          # lipides (min hormonal ~0.6) — g/kg de poids
+KCAL = dict(prot=4, carb=4, fat=9)
+
+# Répartition par repas : seuil de stimulation optimale de la synthèse protéique
+# ~0,4 g de protéines / kg / prise (Moore 2015 ; Schoenfeld & Aragon 2018)
+PROTEIN_PER_MEAL_G_PER_KG = 0.4
+MEALS_DEFAULT = 4

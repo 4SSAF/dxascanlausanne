@@ -24,6 +24,43 @@ def _ffmi(snap, height_m):
     return None
 
 
+def metabolism(snap, weight_kg):
+    """BMR (Cunningham 1991) à partir de la masse maigre (FFM) mesurée au DXA."""
+    ffm_g = snap.get("lean_bmc_g")
+    if ffm_g is None and snap.get("lean_g") and snap.get("bmc_g"):
+        ffm_g = snap["lean_g"] + snap["bmc_g"]
+    if not ffm_g:
+        return None
+    ffm = ffm_g / 1000.0
+    bmr = round(R.CUNNINGHAM["base"] + R.CUNNINGHAM["coef"] * ffm)
+    return {"ffm_kg": round(ffm, 1), "bmr": bmr, "weight_kg": weight_kg}
+
+
+def nutrition(bmr, weight_kg, activity_key=None, goal_key=None, meals=None):
+    """Besoins caloriques + macros + répartition par repas (valeurs par défaut)."""
+    act = dict((k, v) for k, _, v in R.ACTIVITY)[activity_key or R.ACTIVITY_DEFAULT]
+    gadj = dict((k, v) for k, _, v in R.GOALS)[goal_key or R.GOAL_DEFAULT]
+    goal_key = goal_key or R.GOAL_DEFAULT
+    meals = meals or R.MEALS_DEFAULT
+    tdee = round(bmr * act)
+    kcal = round(tdee * (1 + gadj))
+    p_per_kg = R.PROTEIN_G_PER_KG[goal_key]
+    protein = round(weight_kg * p_per_kg)
+    fat = round(weight_kg * R.FAT_G_PER_KG)
+    kcal_pf = protein * R.KCAL["prot"] + fat * R.KCAL["fat"]
+    carbs = max(0, round((kcal - kcal_pf) / R.KCAL["carb"]))
+    per_meal_p = round(protein / meals)
+    mps_min = round(weight_kg * R.PROTEIN_PER_MEAL_G_PER_KG)
+    return {
+        "activity": activity_key or R.ACTIVITY_DEFAULT, "goal": goal_key, "meals": meals,
+        "tdee": tdee, "kcal": kcal, "protein": protein, "carbs": carbs, "fat": fat,
+        "p_per_kg": p_per_kg,
+        "kcal_p": protein * 4, "kcal_c": carbs * 4, "kcal_f": fat * 9,
+        "per_meal_p": per_meal_p, "mps_min": mps_min,
+        "per_meal_kcal": round(kcal / meals),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Âge biologique (heuristique transparente et calibrable)
 # ---------------------------------------------------------------------------
@@ -150,6 +187,13 @@ def analyze(data: dict) -> dict:
     # tendances
     out["has_history"] = data["n_exams"] > 1 and len(data.get("bmd_history", [])) > 1
     out["trends"] = _trends(data)
+
+    # métabolisme (BMR Cunningham) + nutrition par défaut
+    out["metabolism"] = metabolism(snap, demo["weight_kg"])
+    if out["metabolism"]:
+        out["nutrition"] = nutrition(out["metabolism"]["bmr"], demo["weight_kg"])
+    else:
+        out["nutrition"] = None
 
     # interprétation + actions
     out["interp"] = _interpret(out)

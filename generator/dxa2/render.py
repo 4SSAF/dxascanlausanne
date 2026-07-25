@@ -5,6 +5,9 @@ Auto-suffisant (CSS embarqué, images en data-URI), thème clair/sombre, imprima
 from __future__ import annotations
 import os
 import html as _html
+import json as _json
+
+from . import references as R
 
 _ZONE_BG = {"risk": "var(--risk-bg)", "warn": "var(--warn-bg)",
             "good": "var(--good-bg)", "brand": "var(--brand-bg)"}
@@ -169,7 +172,7 @@ def _hero(A):
           <div class="val" style="color:{color}">≈ {age}</div></div>'''
 
     refs = "féminines" if d["sex"] == "F" else "masculines"
-    return f'''<section>
+    return f'''<section data-mod="bioage">
     <div class="sec-head"><span class="idx">01</span><h2>Âge biologique &amp; score global</h2>
       <span class="note">Références {refs} (NHANES + cohortes récentes).</span></div>
     <div class="hero"><div class="hero-in">
@@ -402,7 +405,7 @@ def _trends_section(A):
         c2 = _line_svg(tr["lean"], "var(--muscle)", "Tendance masse maigre")
         c3 = _line_svg(tr["bmd"], "var(--bone)", "Tendance densité osseuse")
         bf0, bf1 = tr["bf"][0]["value"], tr["bf"][-1]["value"]
-        return f'''<section>
+        return f'''<section data-mod="trends">
       <div class="sec-head"><span class="idx">06</span><h2>Évolution dans le temps</h2>
         <span class="note">{A["n_exams"]} examens — la vraie valeur d'un suivi DXA est la trajectoire.</span></div>
       <div class="card"><div class="trend-grid">
@@ -415,7 +418,7 @@ def _trends_section(A):
       </div></div></section>'''
     # baseline
     s = A["snap"]
-    return f'''<section>
+    return f'''<section data-mod="trends">
     <div class="sec-head"><span class="idx">06</span><h2>Point de départ (baseline)</h2>
       <span class="note">Premier examen : les tendances apparaîtront dès le 2ᵉ scan.</span></div>
     <div class="card">
@@ -477,6 +480,203 @@ def _method(A):
       <span>Rapport 2.0</span></div></section>'''
 
 
+def _coach_panel(A):
+    """Panneau de configuration coach — écran seulement, masqué au PDF."""
+    has_nut = bool(A.get("metabolism"))
+    mods = [("bioage", "Âge biologique", True), ("metabolism", "Métabolisme (BMR)", has_nut),
+            ("nutrition", "Besoins nutritionnels", has_nut), ("meals", "Répartition des repas", has_nut),
+            ("trends", "Évolution / tendances", True)]
+    checks = ""
+    for key, lab, on in mods:
+        dis = "" if on else " disabled"
+        chk = " checked" if on else ""
+        checks += (f'<label class="cp-check"><input type="checkbox" data-toggle="{key}"{chk}{dis}>'
+                   f'{esc(lab)}</label>')
+    if not has_nut:
+        nut_controls = ""
+    else:
+        acts = "".join(f'<option value="{k}"{" selected" if k == R.ACTIVITY_DEFAULT else ""}>{esc(lab)}</option>'
+                       for k, lab, _ in R.ACTIVITY)
+        goals = "".join(f'<option value="{k}"{" selected" if k == R.GOAL_DEFAULT else ""}>{esc(lab)}</option>'
+                        for k, lab, _ in R.GOALS)
+        nut_controls = f'''
+      <div class="cp-group"><label>Objectif</label>
+        <select class="cp-select" id="nut-goal">{goals}</select></div>
+      <div class="cp-group"><label>Niveau d'activité</label>
+        <select class="cp-select" id="nut-activity">{acts}</select></div>
+      <div class="cp-group"><label>Repas / jour</label>
+        <select class="cp-select" id="nut-meals"><option value="3">3 repas</option>
+          <option value="4" selected>4 repas</option><option value="5">5 repas</option></select></div>'''
+    return f'''<div class="coach-panel no-print">
+    <span class="cp-tag">Panneau coach — n'apparaît pas dans le PDF</span>
+    <h3>Personnaliser le rapport selon le client</h3>
+    <div class="cp-row">
+      <div class="cp-group"><label>Sections à inclure</label>
+        <div class="cp-checks">{checks}</div></div>
+      {nut_controls}
+      <button class="cp-export" onclick="window.print()">🖨 Exporter en PDF</button>
+    </div>
+    <div class="cp-hint">Cochez/décochez les sections, ajustez l'objectif, puis « Exporter en PDF » : le PDF ne contiendra que ce qui est affiché.</div>
+  </div>'''
+
+
+def _metabolism(A):
+    mb = A["metabolism"]; nu = A["nutrition"]
+    return f'''<section data-mod="metabolism">
+    <div class="sec-head"><span class="idx">·</span><h2>Métabolisme de base</h2>
+      <span class="note">Estimé par la formule de Cunningham (1991) à partir de la masse maigre mesurée.</span></div>
+    <div class="card">
+      <div class="kpi-row">
+        <div class="kpi"><div class="kpi-lab">Masse maigre (FFM)</div>
+          <div class="kpi-val">{fr(mb["ffm_kg"])} <small>kg</small></div>
+          <div class="kpi-sub">mesurée au DXA</div></div>
+        <div class="kpi"><div class="kpi-lab">Métabolisme de base</div>
+          <div class="kpi-val" style="color:var(--metab)">{mb["bmr"]} <small>kcal/j</small></div>
+          <div class="kpi-sub">au repos (BMR)</div></div>
+        <div class="kpi"><div class="kpi-lab">Dépense énergétique</div>
+          <div class="kpi-val" style="color:var(--brand)"><span id="tdee">{nu["tdee"]}</span> <small>kcal/j</small></div>
+          <div class="kpi-sub" id="tdee-sub">BMR × activité (modéré)</div></div>
+        <div class="kpi"><div class="kpi-lab">Formule</div>
+          <div class="kpi-val" style="font-size:16px">500 + 22×FFM</div>
+          <div class="kpi-sub">Cunningham 1991</div></div>
+      </div>
+      <p style="font-size:12.5px;color:var(--ink-2);margin-top:14px;line-height:1.55">
+        Le DXA mesure directement la masse maigre — le tissu qui consomme l'énergie — ce qui rend l'estimation du
+        métabolisme <b>bien plus précise</b> que les formules basées sur le poids seul (Harris-Benedict, Mifflin).</p>
+    </div></section>'''
+
+
+def _nutrition(A):
+    nu = A["nutrition"]
+    return f'''<section data-mod="nutrition">
+    <div class="sec-head"><span class="idx">·</span><h2>Besoins nutritionnels</h2>
+      <span class="note">Cible calorique et macros selon l'objectif — modifiables dans le panneau coach.</span></div>
+    <div class="card">
+      <div class="kpi-row" style="grid-template-columns:1.1fr 1fr 1fr 1fr">
+        <div class="kpi"><div class="kpi-lab">Cible calorique <span id="nut-goal-lab">(maintien)</span></div>
+          <div class="kpi-val" style="color:var(--brand)"><span id="kcal-target">{nu["kcal"]}</span> <small>kcal/j</small></div>
+          <div class="kpi-sub" id="kcal-sub">= dépense énergétique</div></div>
+        <div class="kpi"><div class="kpi-lab">Protéines</div>
+          <div class="kpi-val" style="color:var(--muscle)"><span id="m-prot">{nu["protein"]}</span> <small>g</small></div>
+          <div class="kpi-sub"><span id="m-prot-kg">{fr(nu["p_per_kg"])}</span> g/kg · <span id="m-prot-kcal">{nu["kcal_p"]}</span> kcal</div></div>
+        <div class="kpi"><div class="kpi-lab">Glucides</div>
+          <div class="kpi-val" style="color:var(--metab)"><span id="m-carb">{nu["carbs"]}</span> <small>g</small></div>
+          <div class="kpi-sub"><span id="m-carb-kcal">{nu["kcal_c"]}</span> kcal</div></div>
+        <div class="kpi"><div class="kpi-lab">Lipides</div>
+          <div class="kpi-val" style="color:var(--warn)"><span id="m-fat">{nu["fat"]}</span> <small>g</small></div>
+          <div class="kpi-sub"><span id="m-fat-kcal">{nu["kcal_f"]}</span> kcal</div></div>
+      </div>
+      <div class="macrobar" id="macrobar" style="margin-top:16px"></div>
+      <div class="macrokey">
+        <div class="mk"><span class="msw" style="background:var(--muscle)"></span>Protéines <b id="pct-prot"></b></div>
+        <div class="mk"><span class="msw" style="background:var(--metab)"></span>Glucides <b id="pct-carb"></b></div>
+        <div class="mk"><span class="msw" style="background:var(--warn)"></span>Lipides <b id="pct-fat"></b></div>
+      </div>
+    </div></section>'''
+
+
+def _meals(A):
+    return f'''<section data-mod="meals">
+    <div class="sec-head"><span class="idx">·</span><h2>Répartition des repas</h2>
+      <span class="note">Protéines réparties pour maximiser la synthèse musculaire (~0,4 g/kg/prise).</span></div>
+    <div class="card">
+      <div class="meals-grid" id="meals-container"></div>
+      <div id="mps-note" style="margin-top:14px"></div>
+    </div></section>'''
+
+
+def _script(A):
+    mb = A["metabolism"]
+    cfg = {
+        "weight": A["demo"]["weight_kg"], "bmr": mb["bmr"],
+        "activity": {k: v for k, _, v in R.ACTIVITY},
+        "activityLab": {k: lab for k, lab, _ in R.ACTIVITY},
+        "goalAdj": {k: v for k, _, v in R.GOALS},
+        "goalLab": {k: lab for k, lab, _ in R.GOALS},
+        "protPerKg": R.PROTEIN_G_PER_KG, "fatPerKg": R.FAT_G_PER_KG,
+        "mpsPerKg": R.PROTEIN_PER_MEAL_G_PER_KG,
+    }
+    return f'''<script>
+const CFG = {_json.dumps(cfg)};
+function $(id){{return document.getElementById(id);}}
+
+function renumber(){{
+  const secs = [...document.querySelectorAll('section')].filter(s => !s.classList.contains('hidden'));
+  let n = 1;
+  for (const s of secs){{
+    const idx = s.querySelector('.sec-head .idx');
+    if (idx){{ idx.textContent = String(n).padStart(2,'0'); n++; }}
+  }}
+}}
+
+function computeNutrition(){{
+  if(!$('nut-goal')) return;
+  const goal = $('nut-goal').value, act = $('nut-activity').value, meals = +$('nut-meals').value;
+  const tdee = Math.round(CFG.bmr * CFG.activity[act]);
+  const kcal = Math.round(tdee * (1 + CFG.goalAdj[goal]));
+  const pPerKg = CFG.protPerKg[goal];
+  const protein = Math.round(CFG.weight * pPerKg);
+  const fat = Math.round(CFG.weight * CFG.fatPerKg);
+  const kcalPF = protein*4 + fat*9;
+  const carbs = Math.max(0, Math.round((kcal - kcalPF)/4));
+  const kp = protein*4, kc = carbs*4, kf = fat*9, tot = Math.max(1, kp+kc+kf);
+  // métabolisme
+  if($('tdee')) $('tdee').textContent = tdee;
+  if($('tdee-sub')) $('tdee-sub').textContent = 'BMR × activité (' + CFG.activityLab[act].split(' ')[0].toLowerCase() + ')';
+  // nutrition
+  if($('kcal-target')){{
+    $('kcal-target').textContent = kcal;
+    $('nut-goal-lab').textContent = '(' + CFG.goalLab[goal].split(' ')[0].toLowerCase() + ')';
+    const diff = kcal - tdee;
+    $('kcal-sub').textContent = diff===0 ? '= dépense énergétique' : (diff>0?'+':'') + diff + ' kcal vs dépense';
+    $('m-prot').textContent = protein; $('m-prot-kg').textContent = pPerKg.toString().replace('.',',');
+    $('m-prot-kcal').textContent = kp;
+    $('m-carb').textContent = carbs; $('m-carb-kcal').textContent = kc;
+    $('m-fat').textContent = fat; $('m-fat-kcal').textContent = kf;
+    const pp=Math.round(kp/tot*100), pc=Math.round(kc/tot*100), pf=100-pp-pc;
+    $('macrobar').innerHTML =
+      '<div class="mseg" style="width:'+pp+'%;background:var(--muscle)">P '+pp+'%</div>'+
+      '<div class="mseg" style="width:'+pc+'%;background:var(--metab)">G '+pc+'%</div>'+
+      '<div class="mseg" style="width:'+pf+'%;background:var(--warn)">L '+pf+'%</div>';
+    $('pct-prot').textContent = protein+' g'; $('pct-carb').textContent = carbs+' g'; $('pct-fat').textContent = fat+' g';
+  }}
+  // repas
+  if($('meals-container')){{
+    const perK = Math.round(kcal/meals), perP = Math.round(protein/meals);
+    const mpsMin = Math.round(CFG.weight * CFG.mpsPerKg);
+    let html='';
+    for(let i=1;i<=meals;i++){{
+      html += '<div class="meal"><div class="mn">Repas '+i+'</div>'+
+        '<div class="mk2">'+perK+' <span style="font-size:12px;color:var(--muted)">kcal</span></div>'+
+        '<div class="mp">Protéines <b>'+perP+' g</b></div></div>';
+    }}
+    $('meals-container').innerHTML = html;
+    const ok = perP >= mpsMin;
+    $('mps-note').innerHTML = '<div class="tag-note '+(ok?'good':'')+'"><span>'+(ok?'✓':'⚠')+'</span><div>'+
+      (ok
+        ? '<b>'+perP+' g de protéines par repas</b> — au-dessus du seuil de ~'+mpsMin+' g ('+CFG.mpsPerKg.toString().replace('.',',')+' g/kg) qui maximise la synthèse musculaire à chaque prise.'
+        : '<b>'+perP+' g par repas</b> est sous le seuil optimal de ~'+mpsMin+' g. Regroupez sur moins de repas ou augmentez l\\'apport pour mieux stimuler le muscle.')+
+      '</div></div>';
+  }}
+}}
+
+function bindToggles(){{
+  document.querySelectorAll('.cp-check input[data-toggle]').forEach(cb => {{
+    cb.addEventListener('change', () => {{
+      document.querySelectorAll('section[data-mod="'+cb.dataset.toggle+'"]').forEach(s =>
+        s.classList.toggle('hidden', !cb.checked));
+      renumber();
+    }});
+  }});
+  ['nut-goal','nut-activity','nut-meals'].forEach(id => {{
+    const el = $(id); if(el) el.addEventListener('change', computeNutrition);
+  }});
+}}
+
+document.addEventListener('DOMContentLoaded', () => {{ bindToggles(); computeNutrition(); renumber(); }});
+</script>'''
+
+
 def render(A: dict, img_skeletal=None, img_thermal=None) -> str:
     with open(_STYLE, encoding="utf-8") as f:
         css = f.read()
@@ -484,19 +684,26 @@ def render(A: dict, img_skeletal=None, img_thermal=None) -> str:
     subtitle = ("Généré automatiquement depuis l'export Hologic<br>"
                 + (f'{A["n_exams"]} examens · suivi longitudinal' if A["n_exams"] > 1
                    else "Premier examen (baseline)"))
+    nutri = ""
+    if A.get("metabolism"):
+        nutri = _metabolism(A) + _nutrition(A) + _meals(A)
+
     body = "".join([
         _header(A, subtitle),
         _patient(A),
+        _coach_panel(A),
         _hero(A),
         _composition(A, img_skeletal, img_thermal),
         _muscle(A),
         _fat(A),
         _bone(A),
+        nutri,
         _trends_section(A),
         _interp_section(A),
         _method(A),
     ])
+    script = _script(A) if A.get("metabolism") else ""
     return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <title>Bilan Corporel DXA 2.0 — {esc(name)}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<style>{css}</style></head><body><div class="wrap">{body}</div></body></html>'''
+<style>{css}</style></head><body><div class="wrap">{body}</div>{script}</body></html>'''

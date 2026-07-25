@@ -14,7 +14,13 @@ Deux façons de faire — la **A est recommandée** (vraie icône d'app sur le B
    **Ouvrir** (l'avertissement macOS est normal, seulement la 1ʳᵉ fois).
 3. Patientez ~30 s : une **icône « Rapport DXA 2.0 »** apparaît sur votre **Bureau**.
 4. Ensuite, **double-cliquez cette icône** quand vous voulez un rapport →
-   choisissez un PDF → le rapport s'ouvre dans le navigateur (⌘P pour imprimer/PDF).
+   choisissez un PDF → le rapport s'ouvre dans le navigateur.
+
+En haut du rapport, un **panneau coach** (masqué dans le PDF) permet de
+**cocher/décocher les sections** et de choisir **objectif / activité / nombre de
+repas** (calcul des calories et macros en direct). Cliquez **« 🖨 Exporter en
+PDF »** → **« Enregistrer au format PDF »** : le PDF ne contient que ce qui est
+affiché.
 
 L'app du Bureau est **autonome** : le moteur est copié à l'intérieur, vous pouvez
 la garder même si vous déplacez le dossier. Pour la mettre à jour plus tard,

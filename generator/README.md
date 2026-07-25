@@ -44,6 +44,40 @@ python generate.py dossier/*.pdf
   profil féminin mince, textes d'interprétation et actions priorisées.
 - **Images** DXA du PDF réintégrées proprement (squelette + carte de composition).
 
+## Modules optionnels & personnalisation (panneau coach)
+
+Le rapport contient en tête un **panneau coach** (visible à l'écran, **masqué au
+PDF**) qui permet, par client, de :
+
+- **cocher/décocher** des sections : âge biologique, métabolisme, besoins
+  nutritionnels, répartition des repas, évolution/tendances ;
+- choisir l'**objectif** (déficit / maintien / surplus), le **niveau d'activité**
+  et le **nombre de repas** — les calculs se mettent à jour en direct ;
+- **exporter en PDF** (bouton → *Enregistrer au format PDF*), qui ne contient que
+  les sections affichées et reflète les réglages choisis. La numérotation des
+  sections se recalcule automatiquement.
+
+### Métabolisme & nutrition (science)
+
+- **BMR — Cunningham et al. (1991)** : `RMR = 500 + 22 × masse maigre (kg)`. Le DXA
+  mesurant directement la masse maigre, l'estimation est plus fiable qu'avec les
+  formules basées sur le poids.
+- **DEJ (TDEE)** = BMR × facteur d'activité (PAL).
+- **Cible calorique** selon l'objectif (déficit −20 % / maintien / surplus +10 %).
+- **Macros** : protéines 1,8–2,2 g/kg (Morton 2018 ; Helms 2014 en déficit),
+  lipides 0,9 g/kg, glucides = reste des calories.
+- **Répartition par repas** avec contrôle du seuil de synthèse protéique
+  ~0,4 g/kg/prise (Moore 2015 ; Schoenfeld & Aragon 2018).
+
+Tous ces paramètres sont **calibrables** dans `dxa2/references.py`.
+
+## Export PDF
+
+Le rapport est optimisé pour l'impression (mise en page A4, sauts de page, panneau
+coach masqué). Bouton **« Exporter en PDF »** dans le rapport → dans la fenêtre
+macOS, choisir **« Enregistrer au format PDF »**. (Techniquement : `window.print()`
++ CSS `@media print`.)
+
 ## Architecture
 
 ```
