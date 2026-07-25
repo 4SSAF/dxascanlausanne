@@ -1,11 +1,32 @@
 # 🖥️ App Mac — Générer un rapport DXA 2.0
 
-Une petite « app » à double-cliquer. Elle demande un PDF Hologic et ouvre le
-rapport 2.0 dans votre navigateur. **Rien à taper.**
+Une app à double-cliquer : elle demande un PDF Hologic et ouvre le rapport 2.0
+dans votre navigateur. **Rien à taper.**
+
+Deux façons de faire — la **A est recommandée** (vraie icône d'app sur le Bureau).
 
 ---
 
-## Installation (une seule fois)
+## ⭐ A. Installer la vraie app sur le Bureau (recommandé)
+
+1. Ouvrez le dossier **`generator/mac`**.
+2. **Clic droit** sur **`Installer l'app sur le Bureau.command`** → **Ouvrir** →
+   **Ouvrir** (l'avertissement macOS est normal, seulement la 1ʳᵉ fois).
+3. Patientez ~30 s : une **icône « Rapport DXA 2.0 »** apparaît sur votre **Bureau**.
+4. Ensuite, **double-cliquez cette icône** quand vous voulez un rapport →
+   choisissez un PDF → le rapport s'ouvre dans le navigateur (⌘P pour imprimer/PDF).
+
+L'app du Bureau est **autonome** : le moteur est copié à l'intérieur, vous pouvez
+la garder même si vous déplacez le dossier. Pour la mettre à jour plus tard,
+relancez simplement l'installateur.
+
+---
+
+## B. Version simple sans installation (alternative)
+
+Lance le même outil sans créer d'icône sur le Bureau.
+
+### Installation (une seule fois)
 
 1. Récupérez le dossier **`generator`** sur votre Mac (par ex. dans vos Documents).
 2. Ouvrez le sous-dossier **`generator/mac`**.
