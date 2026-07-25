@@ -102,12 +102,24 @@ GOALS = [
 ]
 GOAL_DEFAULT = "maintien"
 
-# Protéines cibles (g/kg de poids) selon l'objectif — Morton 2018 ; Helms 2014 (déficit)
-PROTEIN_G_PER_KG = dict(deficit=2.2, maintien=1.8, surplus=1.8)
-FAT_G_PER_KG = 0.9          # lipides (min hormonal ~0.6) — g/kg de poids
+# Protéines cibles selon l'objectif.
+#   PROTEIN_BASIS : "ffm" = g par kg de MASSE MAIGRE (choix coach — plus juste),
+#                   "bw"  = g par kg de poids total.
+PROTEIN_BASIS = "ffm"
+PROTEIN_G_PER_KG_FFM = dict(deficit=2.6, maintien=2.2, surplus=2.2)   # Helms 2014 (sèche)
+PROTEIN_G_PER_KG_BW = dict(deficit=2.2, maintien=1.8, surplus=1.8)    # Morton 2018
+FAT_G_PER_KG = 0.9          # lipides (min hormonal ~0.6) — g/kg de poids total
 KCAL = dict(prot=4, carb=4, fat=9)
 
 # Répartition par repas : seuil de stimulation optimale de la synthèse protéique
 # ~0,4 g de protéines / kg / prise (Moore 2015 ; Schoenfeld & Aragon 2018)
 PROTEIN_PER_MEAL_G_PER_KG = 0.4
 MEALS_DEFAULT = 4
+
+
+# ---------------------------------------------------------------------------
+# Projecteur d'objectif (estimation à rythme constant)
+# ---------------------------------------------------------------------------
+# Vitesses par défaut si aucun historique mesuré n'est disponible
+PROJ_FAT_LOSS_PCT_PER_MONTH = 0.7    # perte de %MG/mois en déficit modéré
+PROJ_LEAN_GAIN_KG_PER_MONTH = 0.3    # gain de masse maigre/mois (entraîné, surplus)

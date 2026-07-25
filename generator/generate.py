@@ -16,11 +16,17 @@ import json
 import os
 import sys
 
-from dxa2 import parse, analyze, render
+from dxa2 import parse, analyze, render, store
 
 
-def build_report(pdf_path: str, out_path: str | None = None, dump_json=False) -> str:
+def build_report(pdf_path: str, out_path: str | None = None, dump_json=False,
+                 use_store=True, db_path=None) -> str:
     data = parse.parse_pdf(pdf_path)
+    if use_store:
+        try:
+            data, _ = store.merge(data, db_path)
+        except Exception as e:  # noqa: BLE001
+            print(f"  (mémoire client ignorée : {e})")
     A = analyze.analyze(data)
     skeletal, thermal = parse.extract_images(pdf_path)
     html = render.render(A, img_skeletal=skeletal, img_thermal=thermal)
@@ -49,6 +55,8 @@ def main(argv=None):
     ap.add_argument("pdf", nargs="+", help="fichier(s) PDF Hologic APEX")
     ap.add_argument("-o", "--output", help="fichier HTML de sortie (un seul PDF)")
     ap.add_argument("--json", action="store_true", help="affiche les données extraites")
+    ap.add_argument("--no-store", action="store_true", help="ne pas utiliser la mémoire client")
+    ap.add_argument("--db", help="chemin du fichier de mémoire client (JSON)")
     args = ap.parse_args(argv)
 
     if args.output and len(args.pdf) > 1:
@@ -61,7 +69,8 @@ def main(argv=None):
             rc = 1
             continue
         try:
-            build_report(p, args.output, args.json)
+            build_report(p, args.output, args.json,
+                         use_store=not args.no_store, db_path=args.db)
         except Exception as e:  # noqa: BLE001
             print(f"✗ échec {p} : {e}", file=sys.stderr)
             rc = 1

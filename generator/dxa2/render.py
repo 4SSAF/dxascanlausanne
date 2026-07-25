@@ -12,6 +12,15 @@ from . import references as R
 _ZONE_BG = {"risk": "var(--risk-bg)", "warn": "var(--warn-bg)",
             "good": "var(--good-bg)", "brand": "var(--brand-bg)"}
 _STYLE = os.path.join(os.path.dirname(__file__), "style.css")
+_LOGO_FILE = os.path.join(os.path.dirname(__file__), "logo.b64")
+
+
+def _logo_uri():
+    try:
+        with open(_LOGO_FILE, encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return None
 
 _MOIS = ["", "janvier", "février", "mars", "avril", "mai", "juin", "juillet",
          "août", "septembre", "octobre", "novembre", "décembre"]
@@ -104,8 +113,11 @@ def _line_svg(points, color, label):
 # --- sections -----------------------------------------------------------------
 def _header(A, subtitle):
     d = A["demo"]
+    logo = _logo_uri()
+    mark = (f'<img class="mark-img" src="{logo}" alt="Motion LAB">' if logo
+            else '<div class="mark">M</div>')
     return f'''<header class="topbar">
-    <div class="brand"><div class="mark">M</div>
+    <div class="brand">{mark}
       <div><div class="name">Motion LAB</div>
         <div class="sub">Analyse de composition corporelle · Lausanne</div></div></div>
     <div class="doc-tag"><span class="pill tag">◆ Rapport&nbsp;2.0</span>
@@ -483,9 +495,10 @@ def _method(A):
 def _coach_panel(A):
     """Panneau de configuration coach — écran seulement, masqué au PDF."""
     has_nut = bool(A.get("metabolism"))
+    has_proj = bool(A["snap"].get("bf_pct") and A["snap"].get("lean_g"))
     mods = [("bioage", "Âge biologique", True), ("metabolism", "Métabolisme (BMR)", has_nut),
             ("nutrition", "Besoins nutritionnels", has_nut), ("meals", "Répartition des repas", has_nut),
-            ("trends", "Évolution / tendances", True)]
+            ("projector", "Projecteur d'objectif", has_proj), ("trends", "Évolution / tendances", True)]
     checks = ""
     for key, lab, on in mods:
         dis = "" if on else " disabled"
@@ -507,13 +520,20 @@ def _coach_panel(A):
       <div class="cp-group"><label>Repas / jour</label>
         <select class="cp-select" id="nut-meals"><option value="3">3 repas</option>
           <option value="4" selected>4 repas</option><option value="5">5 repas</option></select></div>'''
+    proj_controls = ""
+    if has_proj:
+        proj_controls = '''
+      <div class="cp-group"><label>Cible % gras</label>
+        <input class="cp-select" type="number" step="0.5" id="proj-bf" style="min-width:100px"></div>
+      <div class="cp-group"><label>Cible masse maigre (kg)</label>
+        <input class="cp-select" type="number" step="0.5" id="proj-lean" style="min-width:120px"></div>'''
     return f'''<div class="coach-panel no-print">
     <span class="cp-tag">Panneau coach — n'apparaît pas dans le PDF</span>
     <h3>Personnaliser le rapport selon le client</h3>
     <div class="cp-row">
       <div class="cp-group"><label>Sections à inclure</label>
         <div class="cp-checks">{checks}</div></div>
-      {nut_controls}
+      {nut_controls}{proj_controls}
       <button class="cp-export" onclick="window.print()">🖨 Exporter en PDF</button>
     </div>
     <div class="cp-hint">Cochez/décochez les sections, ajustez l'objectif, puis « Exporter en PDF » : le PDF ne contiendra que ce qui est affiché.</div>
@@ -558,7 +578,7 @@ def _nutrition(A):
           <div class="kpi-sub" id="kcal-sub">= dépense énergétique</div></div>
         <div class="kpi"><div class="kpi-lab">Protéines</div>
           <div class="kpi-val" style="color:var(--muscle)"><span id="m-prot">{nu["protein"]}</span> <small>g</small></div>
-          <div class="kpi-sub"><span id="m-prot-kg">{fr(nu["p_per_kg"])}</span> g/kg · <span id="m-prot-kcal">{nu["kcal_p"]}</span> kcal</div></div>
+          <div class="kpi-sub"><span id="m-prot-kg">{fr(nu["p_per_kg"])}</span> g/kg {"FFM" if R.PROTEIN_BASIS == "ffm" else "poids"} · <span id="m-prot-kcal">{nu["kcal_p"]}</span> kcal</div></div>
         <div class="kpi"><div class="kpi-lab">Glucides</div>
           <div class="kpi-val" style="color:var(--metab)"><span id="m-carb">{nu["carbs"]}</span> <small>g</small></div>
           <div class="kpi-sub"><span id="m-carb-kcal">{nu["kcal_c"]}</span> kcal</div></div>
@@ -585,16 +605,43 @@ def _meals(A):
     </div></section>'''
 
 
+def _projector(A):
+    return '''<section data-mod="projector">
+    <div class="sec-head"><span class="idx">·</span><h2>Projecteur d'objectif</h2>
+      <span class="note">Estimation à rythme constant — vitesse mesurée si un historique existe, sinon rythme type.</span></div>
+    <div class="card">
+      <div class="kpi-row" style="grid-template-columns:1fr 1fr">
+        <div class="kpi"><div class="kpi-lab">Objectif masse grasse</div>
+          <div class="kpi-val" style="color:var(--metab);font-size:20px"><span id="proj-fat-date">—</span></div>
+          <div class="kpi-sub" id="proj-fat-cur">—</div>
+          <div class="kpi-sub" id="proj-fat-rate" style="margin-top:4px;color:var(--muted)">—</div></div>
+        <div class="kpi"><div class="kpi-lab">Objectif masse maigre</div>
+          <div class="kpi-val" style="color:var(--muscle);font-size:20px"><span id="proj-lean-date">—</span></div>
+          <div class="kpi-sub" id="proj-lean-cur">—</div>
+          <div class="kpi-sub" id="proj-lean-rate" style="margin-top:4px;color:var(--muted)">—</div></div>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-top:14px;line-height:1.5">
+        Réglez les cibles dans le panneau coach. Projection indicative, à rythme constant ; la réalité dépend de
+        l'assiduité, du sommeil et de la nutrition.</p>
+    </div></section>'''
+
+
 def _script(A):
     mb = A["metabolism"]
     cfg = {
-        "weight": A["demo"]["weight_kg"], "bmr": mb["bmr"],
+        "weight": A["demo"]["weight_kg"], "bmr": mb["bmr"], "ffm": mb["ffm_kg"],
         "activity": {k: v for k, _, v in R.ACTIVITY},
         "activityLab": {k: lab for k, lab, _ in R.ACTIVITY},
         "goalAdj": {k: v for k, _, v in R.GOALS},
         "goalLab": {k: lab for k, lab, _ in R.GOALS},
-        "protPerKg": R.PROTEIN_G_PER_KG, "fatPerKg": R.FAT_G_PER_KG,
-        "mpsPerKg": R.PROTEIN_PER_MEAL_G_PER_KG,
+        "proteinBasis": R.PROTEIN_BASIS,
+        "protFFM": R.PROTEIN_G_PER_KG_FFM, "protBW": R.PROTEIN_G_PER_KG_BW,
+        "fatPerKg": R.FAT_G_PER_KG, "mpsPerKg": R.PROTEIN_PER_MEAL_G_PER_KG,
+        "curBF": A["snap"].get("bf_pct"),
+        "curLean": round(A["snap"]["lean_g"] / 1000, 1) if A["snap"].get("lean_g") else None,
+        "velFat": A["velocity"]["fat_pct_per_month"], "velLean": A["velocity"]["lean_kg_per_month"],
+        "defFatLoss": R.PROJ_FAT_LOSS_PCT_PER_MONTH, "defLeanGain": R.PROJ_LEAN_GAIN_KG_PER_MONTH,
+        "bfFloor": R.ANCHORS[A["demo"]["sex"]]["bf_athletic"] - 3,
     }
     return f'''<script>
 const CFG = {_json.dumps(cfg)};
@@ -614,8 +661,9 @@ function computeNutrition(){{
   const goal = $('nut-goal').value, act = $('nut-activity').value, meals = +$('nut-meals').value;
   const tdee = Math.round(CFG.bmr * CFG.activity[act]);
   const kcal = Math.round(tdee * (1 + CFG.goalAdj[goal]));
-  const pPerKg = CFG.protPerKg[goal];
-  const protein = Math.round(CFG.weight * pPerKg);
+  const useFFM = (CFG.proteinBasis === 'ffm' && CFG.ffm);
+  const pPerKg = useFFM ? CFG.protFFM[goal] : CFG.protBW[goal];
+  const protein = Math.round((useFFM ? CFG.ffm : CFG.weight) * pPerKg);
   const fat = Math.round(CFG.weight * CFG.fatPerKg);
   const kcalPF = protein*4 + fat*9;
   const carbs = Math.max(0, Math.round((kcal - kcalPF)/4));
@@ -660,6 +708,46 @@ function computeNutrition(){{
   }}
 }}
 
+function fmtDate(d){{
+  return d.toLocaleDateString('fr-CH', {{month:'long', year:'numeric'}});
+}}
+function computeProjector(){{
+  if(!$('proj-fat-date')) return;
+  const today = new Date();
+  // masse grasse
+  const tBf = parseFloat($('proj-bf').value);
+  const cBf = CFG.curBF;
+  const fatLine = $('proj-fat-rate'), fatDate = $('proj-fat-date'), fatCur = $('proj-fat-cur');
+  fatCur.textContent = (cBf!=null?cBf.toString().replace('.',','):'—') + ' % → ' + (isNaN(tBf)?'—':tBf.toString().replace('.',',')) + ' %';
+  if(cBf!=null && !isNaN(tBf) && tBf < cBf){{
+    const measured = (CFG.velFat!=null && CFG.velFat < -0.05);
+    const rate = measured ? -CFG.velFat : CFG.defFatLoss;
+    const months = (cBf - tBf) / rate;
+    const d = new Date(today); d.setMonth(d.getMonth()+Math.round(months));
+    fatDate.textContent = fmtDate(d);
+    fatLine.textContent = '≈ ' + months.toFixed(1).replace('.',',') + ' mois · ' + rate.toFixed(1).replace('.',',') + ' %/mois (' + (measured?'mesurée':'estimée') + ')';
+  }} else {{
+    fatDate.textContent = cBf!=null && !isNaN(tBf) && tBf>=cBf ? 'cible atteinte' : '—';
+    fatLine.textContent = 'définir une cible inférieure à l\\'actuel';
+  }}
+  // masse maigre
+  const tLean = parseFloat($('proj-lean').value);
+  const cLean = CFG.curLean;
+  const leanLine = $('proj-lean-rate'), leanDate = $('proj-lean-date'), leanCur = $('proj-lean-cur');
+  leanCur.textContent = (cLean!=null?cLean.toString().replace('.',','):'—') + ' kg → ' + (isNaN(tLean)?'—':tLean.toString().replace('.',',')) + ' kg';
+  if(cLean!=null && !isNaN(tLean) && tLean > cLean){{
+    const measured = (CFG.velLean!=null && CFG.velLean > 0.02);
+    const rate = measured ? CFG.velLean : CFG.defLeanGain;
+    const months = (tLean - cLean) / rate;
+    const d = new Date(today); d.setMonth(d.getMonth()+Math.round(months));
+    leanDate.textContent = fmtDate(d);
+    leanLine.textContent = '≈ ' + months.toFixed(1).replace('.',',') + ' mois · +' + rate.toFixed(2).replace('.',',') + ' kg/mois (' + (measured?'mesurée':'estimée') + ')';
+  }} else {{
+    leanDate.textContent = cLean!=null && !isNaN(tLean) && tLean<=cLean ? 'cible atteinte' : '—';
+    leanLine.textContent = 'définir une cible supérieure à l\\'actuel';
+  }}
+}}
+
 function bindToggles(){{
   document.querySelectorAll('.cp-check input[data-toggle]').forEach(cb => {{
     cb.addEventListener('change', () => {{
@@ -671,9 +759,21 @@ function bindToggles(){{
   ['nut-goal','nut-activity','nut-meals'].forEach(id => {{
     const el = $(id); if(el) el.addEventListener('change', computeNutrition);
   }});
+  ['proj-bf','proj-lean'].forEach(id => {{
+    const el = $(id); if(el) el.addEventListener('input', computeProjector);
+  }});
 }}
 
-document.addEventListener('DOMContentLoaded', () => {{ bindToggles(); computeNutrition(); renumber(); }});
+function initProjectorDefaults(){{
+  if($('proj-bf') && CFG.curBF!=null && !$('proj-bf').value)
+    $('proj-bf').value = Math.max(CFG.bfFloor, Math.round((CFG.curBF-3)*10)/10);
+  if($('proj-lean') && CFG.curLean!=null && !$('proj-lean').value)
+    $('proj-lean').value = Math.round((CFG.curLean+2)*10)/10;
+}}
+
+document.addEventListener('DOMContentLoaded', () => {{
+  bindToggles(); initProjectorDefaults(); computeNutrition(); computeProjector(); renumber();
+}});
 </script>'''
 
 
@@ -687,6 +787,7 @@ def render(A: dict, img_skeletal=None, img_thermal=None) -> str:
     nutri = ""
     if A.get("metabolism"):
         nutri = _metabolism(A) + _nutrition(A) + _meals(A)
+    proj = _projector(A) if (A["snap"].get("bf_pct") and A["snap"].get("lean_g")) else ""
 
     body = "".join([
         _header(A, subtitle),
@@ -698,6 +799,7 @@ def render(A: dict, img_skeletal=None, img_thermal=None) -> str:
         _fat(A),
         _bone(A),
         nutri,
+        proj,
         _trends_section(A),
         _interp_section(A),
         _method(A),

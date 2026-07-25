@@ -36,7 +36,7 @@ def metabolism(snap, weight_kg):
     return {"ffm_kg": round(ffm, 1), "bmr": bmr, "weight_kg": weight_kg}
 
 
-def nutrition(bmr, weight_kg, activity_key=None, goal_key=None, meals=None):
+def nutrition(bmr, weight_kg, ffm_kg=None, activity_key=None, goal_key=None, meals=None):
     """Besoins caloriques + macros + répartition par repas (valeurs par défaut)."""
     act = dict((k, v) for k, _, v in R.ACTIVITY)[activity_key or R.ACTIVITY_DEFAULT]
     gadj = dict((k, v) for k, _, v in R.GOALS)[goal_key or R.GOAL_DEFAULT]
@@ -44,8 +44,13 @@ def nutrition(bmr, weight_kg, activity_key=None, goal_key=None, meals=None):
     meals = meals or R.MEALS_DEFAULT
     tdee = round(bmr * act)
     kcal = round(tdee * (1 + gadj))
-    p_per_kg = R.PROTEIN_G_PER_KG[goal_key]
-    protein = round(weight_kg * p_per_kg)
+    # protéines : base FFM (masse maigre) ou poids total selon la config
+    if R.PROTEIN_BASIS == "ffm" and ffm_kg:
+        p_per_kg = R.PROTEIN_G_PER_KG_FFM[goal_key]
+        protein = round(ffm_kg * p_per_kg)
+    else:
+        p_per_kg = R.PROTEIN_G_PER_KG_BW[goal_key]
+        protein = round(weight_kg * p_per_kg)
     fat = round(weight_kg * R.FAT_G_PER_KG)
     kcal_pf = protein * R.KCAL["prot"] + fat * R.KCAL["fat"]
     carbs = max(0, round((kcal - kcal_pf) / R.KCAL["carb"]))
@@ -187,11 +192,13 @@ def analyze(data: dict) -> dict:
     # tendances
     out["has_history"] = data["n_exams"] > 1 and len(data.get("bmd_history", [])) > 1
     out["trends"] = _trends(data)
+    out["velocity"] = _velocity(data)
 
     # métabolisme (BMR Cunningham) + nutrition par défaut
     out["metabolism"] = metabolism(snap, demo["weight_kg"])
     if out["metabolism"]:
-        out["nutrition"] = nutrition(out["metabolism"]["bmr"], demo["weight_kg"])
+        out["nutrition"] = nutrition(out["metabolism"]["bmr"], demo["weight_kg"],
+                                     ffm_kg=out["metabolism"]["ffm_kg"])
     else:
         out["nutrition"] = None
 
@@ -260,6 +267,21 @@ def _trends(data):
         "bf": [{"date": h["date"], "value": h["value"]} for h in data.get("pct_history", [])],
         "lean": series(data.get("lean_history", []), 1000.0),
     }
+
+
+def _velocity(data):
+    """Vitesse mensuelle mesurée (points, sinon None) : %MG/mois et kg maigre/mois."""
+    def rate(hist, div=1.0):
+        pts = [h for h in hist if h.get("date")]
+        if len(pts) < 2:
+            return None
+        a, b = pts[-2], pts[-1]
+        months = (b["date"] - a["date"]).days / 30.44
+        if months <= 0:
+            return None
+        return round((b["value"] - a["value"]) / div / months, 3)
+    return {"fat_pct_per_month": rate(data.get("pct_history", [])),
+            "lean_kg_per_month": rate(data.get("lean_history", []), 1000.0)}
 
 
 def _interpret(out):
