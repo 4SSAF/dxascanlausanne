@@ -22,6 +22,20 @@ if [ ! -x "$PY" ]; then
   PY="$RES/.venv/bin/python"
 fi
 
+# Choix de la langue / Report language
+LANG_CHOICE=$(osascript <<'APPLESCRIPT' 2>/dev/null
+try
+  set c to choose from list {"Français", "English"} with prompt "Langue du rapport / Report language :" default items {"Français"} without multiple selections allowed
+  if c is false then return ""
+  return item 1 of c
+on error
+  return ""
+end try
+APPLESCRIPT
+)
+[ -z "$LANG_CHOICE" ] && exit 0
+if [ "$LANG_CHOICE" = "English" ]; then LANG_CODE="en"; else LANG_CODE="fr"; fi
+
 # Sélection des PDF (fenêtre native)
 FILES=$(osascript <<'APPLESCRIPT' 2>/dev/null
 try
@@ -41,8 +55,8 @@ APPLESCRIPT
 COUNT=0
 while IFS= read -r pdf; do
   [ -z "$pdf" ] && continue
-  out="${pdf%.*}.rapport2.html"
-  if "$PY" "$RES/engine/generate.py" "$pdf" -o "$out"; then
+  out="${pdf%.*}.rapport2.${LANG_CODE}.html"
+  if "$PY" "$RES/engine/generate.py" "$pdf" -o "$out" --lang "$LANG_CODE"; then
     [ -f "$out" ] && open "$out"
     COUNT=$((COUNT + 1))
   else

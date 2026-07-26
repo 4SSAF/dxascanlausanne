@@ -14,7 +14,8 @@ Deux façons de faire — la **A est recommandée** (vraie icône d'app sur le B
    **Ouvrir** (l'avertissement macOS est normal, seulement la 1ʳᵉ fois).
 3. Patientez ~30 s : une **icône « Rapport DXA 2.0 »** apparaît sur votre **Bureau**.
 4. Ensuite, **double-cliquez cette icône** quand vous voulez un rapport →
-   choisissez un PDF → le rapport s'ouvre dans le navigateur.
+   **choisissez la langue** (Français / English) → choisissez un PDF → le rapport
+   s'ouvre dans le navigateur.
 
 En haut du rapport, un **panneau coach** (masqué dans le PDF) permet de
 **cocher/décocher les sections** et de choisir **objectif / activité / nombre de
@@ -52,12 +53,13 @@ Lance le même outil sans créer d'icône sur le Bureau.
 ## Utilisation (à chaque fois)
 
 1. **Double-cliquez** `Générer un rapport DXA.command`.
-2. Choisissez **un ou plusieurs PDF** Hologic dans la fenêtre.
-3. Le(s) rapport(s) s'ouvrent **automatiquement dans votre navigateur**.
-4. Dans le navigateur, **⌘P** pour imprimer ou **enregistrer en PDF**.
+2. Choisissez la **langue** (Français / English).
+3. Choisissez **un ou plusieurs PDF** Hologic dans la fenêtre.
+4. Le(s) rapport(s) s'ouvrent **automatiquement dans votre navigateur**.
+5. Dans le navigateur, **⌘P** pour imprimer ou **enregistrer en PDF**.
 
 Le fichier HTML du rapport est enregistré **à côté du PDF d'origine**
-(même dossier, nom `…rapport2.html`).
+(même dossier, nom `…rapport2.fr.html` ou `…rapport2.en.html` selon la langue).
 
 ---
 

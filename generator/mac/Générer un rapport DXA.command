@@ -36,7 +36,22 @@ if [ ! -x "$DIR/.venv/bin/python" ]; then
 fi
 PY="$DIR/.venv/bin/python"
 
-# 3) Choisir un ou plusieurs PDF (fenêtre native macOS)
+# 3) Choisir la langue / Report language
+LANG_CHOICE=$(osascript <<'APPLESCRIPT' 2>/dev/null
+try
+  set c to choose from list {"Français", "English"} with prompt "Langue du rapport / Report language :" default items {"Français"} without multiple selections allowed
+  if c is false then return ""
+  return item 1 of c
+on error
+  return ""
+end try
+APPLESCRIPT
+)
+if [ -z "$LANG_CHOICE" ]; then echo "Annulé."; exit 0; fi
+if [ "$LANG_CHOICE" = "English" ]; then LANG_CODE="en"; else LANG_CODE="fr"; fi
+echo "Langue / Language : $LANG_CODE"
+
+# 4) Choisir un ou plusieurs PDF (fenêtre native macOS)
 FILES=$(osascript <<'APPLESCRIPT' 2>/dev/null
 try
   set theFiles to choose file with prompt "Choisissez un ou plusieurs rapports DXA (PDF) :" with multiple selections allowed
@@ -53,13 +68,13 @@ APPLESCRIPT
 
 if [ -z "$FILES" ]; then echo "Annulé."; exit 0; fi
 
-# 4) Générer chaque rapport et l'ouvrir
+# 5) Générer chaque rapport et l'ouvrir
 COUNT=0
 while IFS= read -r pdf; do
   [ -z "$pdf" ] && continue
   echo "→ $pdf"
-  out="${pdf%.*}.rapport2.html"
-  if "$PY" "$GEN_DIR/generate.py" "$pdf" -o "$out"; then
+  out="${pdf%.*}.rapport2.${LANG_CODE}.html"
+  if "$PY" "$GEN_DIR/generate.py" "$pdf" -o "$out" --lang "$LANG_CODE"; then
     [ -f "$out" ] && open "$out"
     COUNT=$((COUNT + 1))
   else

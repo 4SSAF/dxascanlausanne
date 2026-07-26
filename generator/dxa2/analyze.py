@@ -100,28 +100,41 @@ def hydration(snap, weight_kg):
 
 
 def training_reco(out):
-    """Recommandations d'entraînement rule-based, liées aux signaux détectés."""
+    """Recommandations d'entraînement rule-based, liées aux signaux détectés (FR/EN)."""
     snap = out["snap"]; a = R.ANCHORS[out["demo"]["sex"]]
+    en = out.get("lang") == "en"
     recs = []
     muscle_low = snap.get("almi") is not None and snap["almi"] < a["almi_median"]
     asym = out.get("arm_asym") and out["arm_asym"]["flag"]
     if muscle_low:
-        recs.append(("Prioriser l'hypertrophie",
+        recs.append(("Prioritise hypertrophy",
+                     "#1 lever here. 10–20 hard sets/muscle/week, 6–20 reps, close to failure RIR 1–3, "
+                     "each muscle 2×/week. Progressive overload week over week.") if en else
+                    ("Prioriser l'hypertrophie",
                      "Levier n°1 ici. 10–20 séries dures/groupe musculaire/semaine, 6–20 répétitions, "
                      "proximité de l'échec RIR 1–3, chaque muscle 2×/semaine. Surcharge progressive semaine après semaine."))
     else:
-        recs.append(("Entretenir la masse musculaire",
+        recs.append(("Maintain muscle mass",
+                     "10–15 sets/muscle/week, RIR 1–3, frequency 2×/week, progressive overload.") if en else
+                    ("Entretenir la masse musculaire",
                      "10–15 séries/groupe/semaine, RIR 1–3, fréquence 2×/semaine, surcharge progressive."))
     if asym:
-        recs.append(("Corriger l'asymétrie",
-                     f"Travail unilatéral (haltères/câbles) en démarrant par le côté faible ({out['arm_asym']['bigger']} plus fort), "
+        side = ("right" if out["arm_asym"]["bigger"] == "droit" else "left") if en else out["arm_asym"]["bigger"]
+        recs.append(("Correct the asymmetry",
+                     f"Unilateral work (dumbbells/cables) starting with the weaker side ({side} stronger), "
+                     "matched reps, 2–3×/week.") if en else
+                    ("Corriger l'asymétrie",
+                     f"Travail unilatéral (haltères/câbles) en démarrant par le côté faible ({side} plus fort), "
                      "répétitions égalisées, 2–3×/semaine."))
-    recs.append(("Charge osseuse",
+    recs.append(("Bone loading",
+                 "Include heavy loads (3–6 reps) and impacts (jumps, running): key stimulus to maintain/raise bone density.") if en else
+                ("Charge osseuse",
                  "Inclure des charges lourdes (3–6 répétitions) et des impacts (sauts, course) : "
                  "stimulus clé pour maintenir/augmenter la densité osseuse."))
-    goal = out.get("nutrition", {}).get("goal")
-    if goal == "deficit":
-        recs.append(("En déficit : préserver le muscle",
+    if out.get("nutrition", {}).get("goal") == "deficit":
+        recs.append(("In a deficit: preserve muscle",
+                     "Keep resistance-training volume and intensity; cardio as a complement, not a replacement.") if en else
+                    ("En déficit : préserver le muscle",
                      "Maintenir le volume et l'intensité de musculation ; le cardio en complément, pas en remplacement."))
     return recs[:4]
 
@@ -187,7 +200,7 @@ def bio_age(demo, snap):
 # ---------------------------------------------------------------------------
 # Analyse complète
 # ---------------------------------------------------------------------------
-def analyze(data: dict) -> dict:
+def analyze(data: dict, lang: str = "fr") -> dict:
     demo = {k: data[k] for k in ("name", "age", "sex", "sex_label", "height_cm",
                                  "weight_kg", "ethnicity", "dob")}
     snap = data["snapshot"]
@@ -196,7 +209,7 @@ def analyze(data: dict) -> dict:
     h_m = (demo["height_cm"] or 0) / 100.0
 
     out = {"demo": demo, "snap": snap, "n_exams": data["n_exams"],
-           "latest_exam_date": data["latest_exam_date"]}
+           "latest_exam_date": data["latest_exam_date"], "lang": lang}
 
     # dérivés
     ffmi = _ffmi(snap, h_m)
@@ -357,15 +370,15 @@ def _since_last(data):
         a, b = pts[-2], pts[-1]
         return (a["date"], round(a["value"] / div, 3), b["date"], round(b["value"] / div, 3))
 
-    specs = [  # (clé histo, div, label, unité, décimales, sens_favorable)
-        ("mass_history", 1000.0, "Poids total", "kg", 1, "neutre"),
-        ("pct_history", 1.0, "% masse grasse", "%", 1, "bas"),
-        ("fat_history", 1000.0, "Masse grasse", "kg", 1, "bas"),
-        ("lean_history", 1000.0, "Masse maigre", "kg", 1, "haut"),
+    specs = [  # (key, clé histo, div, unité, décimales, sens_favorable)
+        ("weight", "mass_history", 1000.0, "kg", 1, "neutre"),
+        ("bf_pct", "pct_history", 1.0, "%", 1, "bas"),
+        ("fat", "fat_history", 1000.0, "kg", 1, "bas"),
+        ("lean", "lean_history", 1000.0, "kg", 1, "haut"),
     ]
     rows, dates = [], None
-    for key, div, label, unit, dec, favor in specs:
-        lt = last_two(data.get(key, []), div)
+    for key, hk, div, unit, dec, favor in specs:
+        lt = last_two(data.get(hk, []), div)
         if not lt:
             continue
         d0, v0, d1, v1 = lt
@@ -380,7 +393,7 @@ def _since_last(data):
             verdict = "good"
         else:
             verdict = "warn"
-        rows.append({"label": label, "unit": unit, "prev": v0, "curr": v1,
+        rows.append({"key": key, "unit": unit, "prev": v0, "curr": v1,
                      "delta": delta, "dir": "up" if delta > 0 else ("down" if delta < 0 else "flat"),
                      "verdict": verdict, "dec": dec})
 
@@ -392,7 +405,7 @@ def _since_last(data):
         delta = round(b["bmd"] - a["bmd"], 3)
         sig = abs(delta) >= R.BMD_LSC
         verdict = "neutral" if not sig else ("good" if delta > 0 else "warn")
-        rows.append({"label": "Densité osseuse", "unit": "g/cm²", "prev": a["bmd"], "curr": b["bmd"],
+        rows.append({"key": "bmd", "unit": "g/cm²", "prev": a["bmd"], "curr": b["bmd"],
                      "delta": delta, "dir": "up" if delta > 0 else ("down" if delta < 0 else "flat"),
                      "verdict": verdict, "dec": 3, "sig": sig})
 
@@ -418,10 +431,11 @@ def _velocity(data):
 
 
 def _interpret(out):
-    """Génère lead + paragraphe + actions priorisées à partir des signaux."""
+    """Génère lead + paragraphe + actions priorisées à partir des signaux (FR/EN)."""
     snap = out["snap"]; a = R.ANCHORS[out["demo"]["sex"]]; sex = out["demo"]["sex"]
+    en = out.get("lang") == "en"
     female = sex == "F"
-    flags = []
+    num = (lambda x: f"{x}") if en else (lambda x: f"{x}".replace(".", ","))
 
     muscle_low = snap.get("almi") is not None and snap["almi"] < a["almi_median"]
     bf_floor = snap.get("bf_pct") is not None and snap["bf_pct"] <= a["bf_athletic"] + 1
@@ -431,66 +445,100 @@ def _interpret(out):
     lean_bmi = out["bmi"] is not None and out["bmi"] < 20
     asym = out.get("arm_asym") and out["arm_asym"]["flag"]
 
-    # lead
     strengths = []
     if vat_great:
-        strengths.append("métabolique")
+        strengths.append("metabolic" if en else "métabolique")
     if bone_great:
-        strengths.append("osseux")
-    lead_strength = " et ".join(strengths) if strengths else "de composition"
-    if muscle_low:
-        lead = (f"Un profil {lead_strength} excellent, dont le principal axe de progrès "
-                f"est la construction de muscle.")
+        strengths.append("bone" if en else "osseux")
+    if en:
+        s = (" and ".join(strengths)) if strengths else "composition"
+        lead = (f"An excellent {s} profile, whose main area for progress is building muscle."
+                if muscle_low else f"A solid, balanced {s} profile to maintain.")
     else:
-        lead = f"Un profil {lead_strength} solide et équilibré, à entretenir."
+        s = (" et ".join(strengths)) if strengths else "de composition"
+        lead = (f"Un profil {s} excellent, dont le principal axe de progrès est la construction de muscle."
+                if muscle_low else f"Un profil {s} solide et équilibré, à entretenir.")
 
-    # paragraphe
     para = []
-    if vat_great:
-        para.append("La graisse viscérale est remarquablement basse : le risque cardiométabolique lié à la composition corporelle est minime.")
-    if bone_great:
-        para.append("La densité osseuse dépasse la moyenne du jeune adulte — un atout à préserver.")
-    elif bone_normal:
-        para.append("La densité osseuse est normale.")
-    if muscle_low:
-        para.append("La masse musculaire se situe autour de la médiane de référence : c'est le poste où un gain apporterait le plus (force, métabolisme, protection osseuse).")
-    if bf_floor:
-        if female:
-            para.append("La masse grasse est déjà basse : combinée à un IMC modeste, la priorité est un apport énergétique suffisant, pas une perte de poids.")
-        else:
-            para.append("La masse grasse est en zone athlétique, proche du plancher : descendre plus bas n'apporterait aucun bénéfice santé.")
-    interp_para = " ".join(para)
+    if en:
+        if vat_great:
+            para.append("Visceral fat is remarkably low: composition-related cardiometabolic risk is minimal.")
+        if bone_great:
+            para.append("Bone density is above the young-adult average — an asset to preserve.")
+        elif bone_normal:
+            para.append("Bone density is normal.")
+        if muscle_low:
+            para.append("Muscle mass sits around the reference median: this is where a gain would help most (strength, metabolism, bone protection).")
+        if bf_floor:
+            para.append("Fat mass is already low: with a modest BMI, the priority is adequate energy intake, not weight loss."
+                        if female else "Fat mass is in the athletic zone, near the floor: going lower brings no health benefit.")
+    else:
+        if vat_great:
+            para.append("La graisse viscérale est remarquablement basse : le risque cardiométabolique lié à la composition corporelle est minime.")
+        if bone_great:
+            para.append("La densité osseuse dépasse la moyenne du jeune adulte — un atout à préserver.")
+        elif bone_normal:
+            para.append("La densité osseuse est normale.")
+        if muscle_low:
+            para.append("La masse musculaire se situe autour de la médiane de référence : c'est le poste où un gain apporterait le plus (force, métabolisme, protection osseuse).")
+        if bf_floor:
+            para.append("La masse grasse est déjà basse : combinée à un IMC modeste, la priorité est un apport énergétique suffisant, pas une perte de poids."
+                        if female else "La masse grasse est en zone athlétique, proche du plancher : descendre plus bas n'apporterait aucun bénéfice santé.")
 
-    # actions priorisées
     actions = []
     if muscle_low:
-        target = round(snap["almi"] + 0.6, 1)
-        actions.append(("Renforcement musculaire progressif",
-                        f"Musculation orientée hypertrophie/force. Objectif : ALMI {snap['almi']} → {target}+ kg/m² sur 12 mois.",
-                        "Priorité — levier n°1 sur l'âge biologique"))
+        tgt = round(snap["almi"] + 0.6, 1)
+        if en:
+            actions.append(("Progressive resistance training",
+                            f"Strength training, hypertrophy/power focus. Target: ALMI {num(snap['almi'])} → {num(tgt)}+ kg/m² over 12 months.",
+                            "Priority — #1 lever on biological age"))
+        else:
+            actions.append(("Renforcement musculaire progressif",
+                            f"Musculation orientée hypertrophie/force. Objectif : ALMI {num(snap['almi'])} → {num(tgt)}+ kg/m² sur 12 mois.",
+                            "Priorité — levier n°1 sur l'âge biologique"))
     if female and (bf_floor or lean_bmi):
-        actions.append(("Disponibilité énergétique (éviter le RED-S)",
+        actions.append(("Energy availability (avoid RED-S)",
+                        "Adequate energy and protein 1.6–2.2 g/kg/day. Protect the hormonal cycle and bone capital — don't aim leaner.",
+                        "Nutrition · female health") if en else
+                       ("Disponibilité énergétique (éviter le RED-S)",
                         "Énergie suffisante et protéines 1,6–2,2 g/kg/j. Protéger cycle hormonal et capital osseux — ne pas viser plus maigre.",
                         "Nutrition · santé féminine"))
     elif bf_floor:
-        actions.append(("Nourrir la performance, pas la restriction",
+        actions.append(("Fuel performance, not restriction",
+                        "Protein 1.6–2.2 g/kg/day and adequate energy. At this body-fat level, the priority is intake, not a deficit.",
+                        "Nutrition") if en else
+                       ("Nourrir la performance, pas la restriction",
                         "Protéines 1,6–2,2 g/kg/j et énergie suffisante. À ce niveau de masse grasse, la priorité est l'apport, pas le déficit.",
                         "Nutrition"))
     if asym:
         ar = out["arm_asym"]
-        actions.append(("Corriger l'asymétrie des bras",
-                        f"Écart bras {ar['pct']:.0f} % ({ar['bigger']} plus fort). Travail unilatéral en démarrant par le côté faible.",
-                        "Prévention blessure · esthétique"))
-    actions.append(("Entretenir le capital osseux",
+        side = ("right" if ar["bigger"] == "droit" else "left") if en else ar["bigger"]
+        if en:
+            actions.append(("Correct the arm asymmetry",
+                            f"Arm gap {ar['pct']:.0f}% ({side} stronger). Unilateral work starting with the weaker side.",
+                            "Injury prevention · aesthetics"))
+        else:
+            actions.append(("Corriger l'asymétrie des bras",
+                            f"Écart bras {ar['pct']:.0f} % ({side} plus fort). Travail unilatéral en démarrant par le côté faible.",
+                            "Prévention blessure · esthétique"))
+    actions.append(("Maintain bone capital",
+                    "Heavy loads and impacts, adequate calcium/vitamin D.",
+                    "Long-term prevention") if en else
+                   ("Entretenir le capital osseux",
                     "Charges lourdes et impacts, apports calcium/vitamine D adéquats.",
                     "Prévention long terme"))
     if out["has_history"]:
-        actions.append(("Poursuivre le suivi",
+        actions.append(("Keep tracking",
+                        "Re-scan in 6–12 months to extend the trends (significant BMD threshold ±0.014 g/cm²).",
+                        "Follow-up") if en else
+                       ("Poursuivre le suivi",
                         "Re-scan dans 6–12 mois pour prolonger les tendances (seuil DMO significatif ±0,014 g/cm²).",
                         "Suivi"))
     else:
-        actions.append(("Créer la première tendance",
+        actions.append(("Establish the first trend",
+                        "This first exam becomes the reference. Re-scan in 6–12 months to objectively measure gains.",
+                        "Follow-up") if en else
+                       ("Créer la première tendance",
                         "Ce premier examen devient la référence. Re-scan dans 6–12 mois pour mesurer objectivement les gains.",
                         "Suivi"))
-
-    return {"lead": lead, "para": interp_para, "actions": actions[:4]}
+    return {"lead": lead, "para": " ".join(para), "actions": actions[:4]}

@@ -27,9 +27,20 @@ python generate.py DXA_client.pdf -o rapport.html
 # voir les données extraites (débogage / vérification)
 python generate.py DXA_client.pdf --json
 
+# langue du rapport : français (défaut) ou anglais
+python generate.py DXA_client.pdf --lang en -o rapport_en.html
+
 # traitement par lot
 python generate.py dossier/*.pdf
 ```
+
+## Bilingue FR / EN
+
+Le rapport est **entièrement bilingue** (français par défaut, anglais avec `--lang en`) :
+libellés, textes d'interprétation, plan d'action, panneau coach et champs recalculés
+en direct (JS). Les nombres suivent la langue (virgule décimale en FR, point en EN).
+Dans l'app Mac, une fenêtre demande la langue avant de choisir le PDF. Le fichier de
+sortie porte un suffixe de langue (`…rapport2.fr.html` / `…rapport2.en.html`).
 
 ## Ce que le générateur fait tout seul
 
