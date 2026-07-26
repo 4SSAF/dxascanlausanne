@@ -84,6 +84,20 @@ PDF**) qui permet, par client, de :
 - **Forçage manuel** des grammes de macros (P/G/L) dans le panneau coach : si
   renseignés, ils priment sur le calcul ; les autres macros s'ajustent.
 
+### Comparaison par sport (population du même sport)
+
+Le panneau coach propose un **sélecteur de sport** (endurance, force & physique,
+sports collectifs, combat & raquettes). Une fois un sport choisi, les jauges
+**% masse grasse / FFMI / ALMI** affichent, en plus de la population générale, une
+**bande « sport »** (25e–75e percentile) et un **repère médian** ; la section os
+reçoit une note d'**impact** (ex. natation = porté → DMO souvent plus basse, normal).
+
+Valeurs de référence **DXA indicatives**, issues de cohortes compétitives/élite —
+repère contextuel, **pas un objectif clinique**. Sources : Santos 2014 (percentiles
+DXA par sexe/sport), Jagim 2024 / Magee 2023 / Currier 2019 / Blue 2019 (FFMI),
+Hew-Butler 2025 / Sansone 2022 (% masse grasse DXA), Tenforde 2018 / Taaffe 1995 /
+Nevill 2025 (DMO par impact). Toutes calibrables dans `dxa2/references.py` (`SPORTS`).
+
 Tous ces paramètres sont **calibrables** dans `dxa2/references.py`. La marque
 (nom du centre, logo, pied de page) est neutre par défaut et se personnalise via
 les constantes `CLINIC_*` / `SHOW_LOGO` du même fichier.

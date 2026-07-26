@@ -57,6 +57,93 @@ BMD_SCALE_LABELS = ["−2,5 ostéo", "−1,0", "0 moyenne", "+2"]
 # Seuil de variation significative DMO (VMS Hologic typique)
 BMD_LSC = 0.014
 
+# ---------------------------------------------------------------------------
+# Comparaison à une population pratiquant le même sport (module optionnel)
+# ---------------------------------------------------------------------------
+# Valeurs de référence DXA INDICATIVES, issues de cohortes compétitives.
+# Sources : Santos 2014 (percentiles DXA sexe/sport) ; Jagim 2024, Magee 2023,
+# Currier 2019, Blue 2019, Brandner 2022 (FFMI par sport) ; Hew-Butler 2025,
+# Sansone 2022 (% masse grasse DXA par sport) ; Tenforde 2018, Taaffe 1995,
+# Nevill 2025 (DMO par impact). bf / ffmi = [25e pct, médiane, 75e pct].
+# ⚠ Cohortes élite/universitaires : repère contextuel, pas objectif clinique.
+ALMI_FFMI_RATIO = {"M": 0.40, "F": 0.35}   # ALMI estimé à partir du FFMI (calibré sur médianes pop.)
+
+# Catégories d'impact osseux : (libellé_fr, libellé_en, attendu_fr, attendu_en)
+BMD_IMPACT = {
+    "high":  ("impact / charge élevés", "high impact / loading",
+              "DMO typiquement élevée", "BMD typically high"),
+    "multi": ("multidirectionnel", "multidirectional",
+              "DMO typiquement bonne", "BMD typically good"),
+    "low":   ("faible impact", "low impact",
+              "DMO modérée", "BMD moderate"),
+    "non":   ("porté / sans impact", "supported / non-impact",
+              "DMO souvent plus basse — normal pour ce sport",
+              "BMD often lower — normal for this sport"),
+}
+
+SPORT_GROUPS = [
+    ("endurance", "Endurance", "Endurance"),
+    ("force", "Force & physique", "Strength & physique"),
+    ("collectif", "Sports collectifs", "Team sports"),
+    ("combat", "Combat & raquettes", "Combat & racket"),
+]
+
+def _sp(key, fr, en, group, impact, mbf, mffmi, fbf, fffmi):
+    return dict(key=key, fr=fr, en=en, group=group, impact=impact,
+                M=dict(bf=mbf, ffmi=mffmi), F=dict(bf=fbf, ffmi=fffmi))
+
+SPORTS = [
+    # --- Endurance ---
+    _sp("course", "Course à pied / fond", "Distance running", "endurance", "low",
+        [8, 11, 14], [18.5, 20, 21.5], [19, 22, 26], [14.5, 15.5, 17]),
+    _sp("velo", "Cyclisme (route)", "Cycling (road)", "endurance", "non",
+        [9, 12, 15], [19, 20.5, 22], [19, 22, 26], [15.5, 16.5, 18]),
+    _sp("natation", "Natation", "Swimming", "endurance", "non",
+        [11, 14, 18], [20, 21.5, 23], [21, 24, 28], [16.5, 17.5, 19]),
+    _sp("triathlon", "Triathlon", "Triathlon", "endurance", "low",
+        [9, 12, 15], [19, 20.5, 22], [19, 22, 26], [15.5, 16.5, 18]),
+    _sp("aviron", "Aviron", "Rowing", "endurance", "non",
+        [10, 13, 17], [21, 22.5, 24], [19, 23, 27], [16, 17, 18.5]),
+    # --- Force & physique ---
+    _sp("muscu", "Musculation générale", "General strength training", "force", "high",
+        [11, 15, 20], [20, 22, 24], [20, 24, 29], [16, 17.5, 19.5]),
+    _sp("powerlifting", "Powerlifting", "Powerlifting", "force", "high",
+        [15, 20, 27], [22.5, 24.5, 27], [24, 30, 36], [18, 19.5, 21.5]),
+    _sp("haltero", "Haltérophilie", "Weightlifting", "force", "high",
+        [11, 15, 20], [22, 24, 26], [20, 24, 29], [17.5, 19, 21]),
+    _sp("crossfit", "CrossFit", "CrossFit", "force", "high",
+        [11, 14, 18], [21, 22.5, 24.5], [18, 22, 27], [16.5, 18, 20]),
+    _sp("bodybuilding", "Bodybuilding", "Bodybuilding", "force", "high",
+        [6, 9, 13], [22, 24, 26.5], [14, 18, 23], [17.5, 19, 21]),
+    # --- Sports collectifs ---
+    _sp("football", "Football", "Football (soccer)", "collectif", "multi",
+        [9, 12, 16], [19.5, 21, 22.5], [18, 21, 26], [16, 17, 18.5]),
+    _sp("rugby", "Rugby", "Rugby", "collectif", "multi",
+        [13, 18, 25], [21.5, 23.5, 26], [22, 28, 33], [17, 18.5, 20.5]),
+    _sp("basket", "Basketball", "Basketball", "collectif", "high",
+        [12, 15, 19], [20, 21.5, 23], [18, 21, 25], [16.5, 18, 19.5]),
+    _sp("volley", "Volleyball", "Volleyball", "collectif", "high",
+        [11, 14, 18], [19.5, 21, 23], [19, 22, 27], [16, 17.5, 19]),
+    _sp("handball", "Handball", "Handball", "collectif", "multi",
+        [12, 15, 19], [21, 22.5, 24], [20, 24, 29], [16.5, 18, 19.5]),
+    _sp("hockey", "Hockey sur glace", "Ice hockey", "collectif", "multi",
+        [12, 15, 20], [21, 22.5, 24], [20, 24, 29], [16.5, 18, 19.5]),
+    _sp("foot_us", "Football américain", "American football", "collectif", "multi",
+        [13, 20, 30], [22, 24, 27], [22, 27, 33], [17, 18.5, 20.5]),
+    # --- Combat & raquettes ---
+    _sp("lutte", "Lutte", "Wrestling", "combat", "multi",
+        [9, 13, 18], [21, 23, 25], [18, 22, 27], [16.5, 18, 20]),
+    _sp("judo", "Judo", "Judo", "combat", "multi",
+        [10, 14, 19], [21, 22.5, 25], [20, 24, 29], [16.5, 18, 20]),
+    _sp("boxe", "Boxe", "Boxing", "combat", "multi",
+        [9, 12, 16], [20, 21.5, 23.5], [18, 22, 27], [16, 17.5, 19]),
+    _sp("mma", "MMA / arts martiaux", "MMA / martial arts", "combat", "multi",
+        [9, 13, 17], [21, 22.5, 24.5], [19, 23, 28], [16.5, 18, 20]),
+    _sp("tennis", "Tennis / raquettes", "Tennis / racket", "combat", "multi",
+        [11, 14, 18], [19.5, 21, 22.5], [19, 23, 28], [16, 17, 18.5]),
+]
+SPORT_DEFAULT = ""
+
 # Pondérations de l'âge biologique (calibrables)
 BIOAGE_WEIGHTS = dict(metabolic=0.40, muscle=0.35, bone=0.25)
 
@@ -126,7 +213,7 @@ PROJ_LEAN_GAIN_KG_PER_MONTH = 0.3    # gain de masse maigre/mois (entraîné, su
 
 
 # Version du moteur (affichée en pied de rapport pour vérifier les mises à jour)
-VERSION = "3.1"
+VERSION = "3.2"
 VERSION_DATE = "2026-07"
 
 

@@ -59,20 +59,27 @@ def _zones_html(zones):
         for (w, tok) in zones)
 
 
-def _meter(name, sub, read, meter, legend_html=""):
+def _meter(name, sub, read, meter, legend_html="", metric=None):
     ref = ""
     if meter.get("ref") is not None:
         ref = f'<span class="mkref" style="left:{meter["ref"]:.1f}%"></span>'
     mk = ""
     if meter.get("marker") is not None:
         mk = f'<span class="mk" style="left:{meter["marker"]:.1f}%"></span>'
+    # emplacements pour la superposition « sport » (positionnés en JS)
+    sport_ov = sport_cap = ""
+    if metric:
+        sport_ov = (f'<span class="sport-band" id="sb-{metric}" hidden></span>'
+                    f'<span class="sport-mk" id="sm-{metric}" hidden></span>')
+        sport_cap = f'<div class="sport-cap" id="sc-{metric}" hidden></div>'
     labels = "".join(f"<span>{esc(l)}</span>" for l in meter["labels"])
     return f'''<div class="metric">
       <div class="row"><span class="name">{name} <small>{sub}</small></span>
         <span class="read">{read}</span></div>
       <div class="meter"><div class="track"><div class="zones">{_zones_html(meter["zones"])}</div>
-        {ref}{mk}</div>
+        {ref}{mk}{sport_ov}</div>
         <div class="scale">{labels}</div>
+        {sport_cap}
       </div>{legend_html}
     </div>'''
 
@@ -297,7 +304,7 @@ def _composition(A, img_skeletal, img_thermal):
             Image non destinée à un usage diagnostique</p></div>'''
 
     meters = _meter("FFMI", "masse maigre / taille²",
-                    f'{fr(A["ffmi"])} <small>kg/m²</small>', A["meters"]["ffmi"])
+                    f'{fr(A["ffmi"])} <small>kg/m²</small>', A["meters"]["ffmi"], metric="ffmi")
     if A["meters"]["fmi"]["value"] is not None:
         meters += _meter("FMI", "masse grasse / taille²",
                          f'{fr(A["snap"].get("fmi"))} <small>kg/m²</small>', A["meters"]["fmi"])
@@ -373,7 +380,7 @@ def _muscle(A):
       <span class="note">Le compartiment le plus lié à la longévité fonctionnelle.</span></div>
     <div class="grid g-2">
       <div class="card"><div class="eyebrow" style="margin-bottom:14px">Position vs jeunes adultes (même sexe)</div>
-        {_meter("ALMI", "maigre appendiculaire / taille²", f'{fr(s.get("almi"),2)} <small>kg/m²</small>', mt, legend)}
+        {_meter("ALMI", "maigre appendiculaire / taille²", f'{fr(s.get("almi"),2)} <small>kg/m²</small>', mt, legend, metric="almi")}
         <p style="font-size:13px;color:var(--ink-2);margin-top:14px;line-height:1.55">{interp}</p></div>
       <div class="card"><div class="eyebrow" style="margin-bottom:14px">Masse maigre par région (kg)</div>
         {bars}{note}</div></div></section>'''
@@ -395,7 +402,7 @@ def _fat(A):
       <span class="note">Ce n'est pas la quantité de graisse qui compte, mais surtout sa localisation.</span></div>
     <div class="grid g-2">
       <div class="card"><div class="eyebrow" style="margin-bottom:14px">Masse grasse totale — plages de santé</div>
-        {_meter("% masse grasse", "", f'{fr(s.get("bf_pct"))} <small>%</small>', A["meters"]["bf"])}
+        {_meter("% masse grasse", "", f'{fr(s.get("bf_pct"))} <small>%</small>', A["meters"]["bf"], metric="bf")}
       </div>
       <div class="card"><div class="eyebrow" style="margin-bottom:14px">Graisse viscérale (TAV) — le marqueur qui compte</div>
         <div class="callout"><div class="cn">{fr(s.get("vat_mass_g"),0)}<small>{_t(A,"grammes de TAV","grams of VAT")}</small></div>
@@ -512,7 +519,8 @@ def _bone(A):
         <div class="tag-note"><span>ⓘ</span><div>{tag_note}</div></div></div>
       <div class="card"><div class="eyebrow" style="margin-bottom:14px">Densité par région (g/cm²)</div>
         {right}<div style="margin-top:18px">{bars}</div>
-        <p style="font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5">{reg_note}</p></div></div></section>'''
+        <p style="font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5">{reg_note}</p>
+        <p class="sport-bone-note" id="sport-bone-note" hidden></p></div></div></section>'''
 
 
 def _trends_section(A):
@@ -578,9 +586,13 @@ def _method(A):
           ≈ {b['composite']} yrs &nbsp;(vs {d['age']} chrono)''')
     src_pop = _t(A,
                  f"Natif Hologic : NHANES/BMDCS 2012 ({refs_sex}). Enrichi : Pratt 2025 (valeurs DXA par âge), "
-                 "Meredith-Jones 2021 (seuils TAV), Radecka 2025 / Yamada 2021 (ALMI), Hew-Butler 2025 (% masse grasse athlète).",
+                 "Meredith-Jones 2021 (seuils TAV), Radecka 2025 / Yamada 2021 (ALMI), Hew-Butler 2025 (% masse grasse athlète). "
+                 "Comparaison par sport (indicative, cohortes compétitives) : Santos 2014 (percentiles DXA par sport), "
+                 "Jagim 2024 (FFMI), Hew-Butler 2025 (% masse grasse), Tenforde 2018 (impact osseux).",
                  f"Native Hologic: NHANES/BMDCS 2012 ({refs_sex}). Enriched: Pratt 2025 (DXA values by age), "
-                 "Meredith-Jones 2021 (VAT thresholds), Radecka 2025 / Yamada 2021 (ALMI), Hew-Butler 2025 (athlete body-fat %).")
+                 "Meredith-Jones 2021 (VAT thresholds), Radecka 2025 / Yamada 2021 (ALMI), Hew-Butler 2025 (athlete body-fat %). "
+                 "Sport comparison (indicative, competitive cohorts): Santos 2014 (DXA percentiles by sport), "
+                 "Jagim 2024 (FFMI), Hew-Butler 2025 (body-fat %), Tenforde 2018 (bone impact).")
     src_nut = _t(A,
                  "<b>BMR</b> Cunningham 1991 (500 + 22·masse maigre). <b>DEJ</b> = BMR × facteur d'activité (PAL, Harris-Benedict). "
                  "<b>Calories</b> déficit −20 % / surplus +10 %. <b>Protéines</b> Morton 2018 (1,6–2,2 g/kg) ; Helms 2014 "
@@ -689,12 +701,22 @@ def _coach_panel(A):
         <div class="dxsite"><span>Hanche totale</span><div class="dxin"><input type="number" step="0.1" id="dx-hip-t" placeholder="T"><input type="number" step="0.1" id="dx-hip-z" placeholder="Z"></div></div>
         {meno}
       </div></div>'''
+    en = A.get("lang") == "en"
+    sport_opts = f'<option value="">{"— none —" if en else "— aucun —"}</option>'
+    for gk, gfr, gen in R.SPORT_GROUPS:
+        opts = "".join(f'<option value="{s["key"]}">{esc(s["en"] if en else s["fr"])}</option>'
+                       for s in R.SPORTS if s["group"] == gk)
+        sport_opts += f'<optgroup label="{esc(gen if en else gfr)}">{opts}</optgroup>'
+    sport_lbl = "Client’s sport (compare indices)" if en else "Sport du client (comparer les index)"
+    sport_control = (f'<div class="cp-group"><label>{sport_lbl}</label>'
+                     f'<select class="cp-select" id="cp-sport">{sport_opts}</select></div>')
     return f'''<div class="coach-panel no-print">
     <span class="cp-tag">Panneau coach — n'apparaît pas dans le PDF</span>
     <h3>Personnaliser le rapport selon le client</h3>
     <div class="cp-row">
       <div class="cp-group"><label>Sections à inclure</label>
         <div class="cp-checks">{checks}</div></div>
+      {sport_control}
       {nut_controls}{proj_controls}
       <button class="cp-export" onclick="window.print()">🖨 Exporter en PDF</button>
     </div>
@@ -937,6 +959,24 @@ def _script(A):
         "defFatLoss": R.PROJ_FAT_LOSS_PCT_PER_MONTH, "defLeanGain": R.PROJ_LEAN_GAIN_KG_PER_MONTH,
         "bfFloor": R.ANCHORS[A["demo"]["sex"]]["bf_athletic"] - 3,
     }
+    # --- comparaison par sport (superposition sur les jauges) ---
+    _sex = A["demo"]["sex"]
+    _ratio = R.ALMI_FFMI_RATIO[_sex]
+    _sports = {}
+    for s in R.SPORTS:
+        d = s[_sex]
+        _sports[s["key"]] = {
+            "label": s["en"] if lang == "en" else s["fr"],
+            "bf": d["bf"], "ffmi": d["ffmi"],
+            "almi": [round(x * _ratio, 1) for x in d["ffmi"]],
+            "impact": s["impact"],
+        }
+    cfg["sports"] = _sports
+    cfg["sportScales"] = {"bf": list(R.ANCHORS[_sex]["bf_scale"]),
+                          "ffmi": list(R.ANCHORS[_sex]["ffmi_scale"]),
+                          "almi": list(R.ANCHORS[_sex]["almi_scale"])}
+    cfg["impactLbl"] = {k: [(v[1] if lang == "en" else v[0]), (v[3] if lang == "en" else v[2])]
+                        for k, v in R.BMD_IMPACT.items()}
     if mb:
         cfg.update({
             "weight": A["demo"]["weight_kg"], "bmr": mb["bmr"], "ffm": mb["ffm_kg"],
@@ -1118,7 +1158,38 @@ function computeBone(){{
   $('bonedx-rows').innerHTML = tbl;
 }}
 
+function scalePos(v, lo, hi){{ return Math.max(2, Math.min(98, (v-lo)/(hi-lo)*100)); }}
+function computeSport(){{
+  const sel = $('cp-sport');
+  const key = sel ? sel.value : '';
+  const s = key ? CFG.sports[key] : null;
+  const units = {{bf:'%', ffmi:' kg/m²', almi:' kg/m²'}};
+  for(const m of ['bf','ffmi','almi']){{
+    const band=$('sb-'+m), mk=$('sm-'+m), cap=$('sc-'+m);
+    if(!band||!mk) continue;
+    if(!s || !CFG.sportScales || !CFG.sportScales[m]){{ band.hidden=true; mk.hidden=true; if(cap) cap.hidden=true; continue; }}
+    const sc=CFG.sportScales[m], v=s[m];
+    const pLo=scalePos(v[0],sc[0],sc[1]), pHi=scalePos(v[2],sc[0],sc[1]), pMed=scalePos(v[1],sc[0],sc[1]);
+    band.style.left=pLo+'%'; band.style.width=Math.max(0,pHi-pLo)+'%'; band.hidden=false;
+    mk.style.left=pMed+'%'; mk.hidden=false;
+    if(cap){{
+      const dec=(m==='bf')?0:1;
+      cap.innerHTML='<span class="sport-sw"></span>'+s.label+' — '+(EN?'median ':'médiane ')+nf(v[1],dec)+units[m]+
+        ' <span style="opacity:.72">('+(EN?'band = 25–75th pct, competitive':'bande = 25–75e pct, compétitif')+')</span>';
+      cap.hidden=false;
+    }}
+  }}
+  const bn=$('sport-bone-note');
+  if(bn){{
+    if(!s){{ bn.hidden=true; }}
+    else {{ const il=CFG.impactLbl[s.impact];
+      bn.innerHTML='<b>'+s.label+'</b> — '+(EN?'bone loading: ':'sollicitation osseuse : ')+il[0]+' · '+il[1]+'.';
+      bn.hidden=false; }}
+  }}
+}}
+
 function bindToggles(){{
+  const sp=$('cp-sport'); if(sp) sp.addEventListener('change', computeSport);
   document.querySelectorAll('.cp-check input[data-toggle]').forEach(cb => {{
     cb.addEventListener('change', () => {{
       document.querySelectorAll('section[data-mod="'+cb.dataset.toggle+'"]').forEach(s =>
@@ -1149,7 +1220,7 @@ function initProjectorDefaults(){{
 }}
 
 document.addEventListener('DOMContentLoaded', () => {{
-  bindToggles(); initProjectorDefaults(); computeNutrition(); computeProjector(); computeBone(); renumber();
+  bindToggles(); initProjectorDefaults(); computeNutrition(); computeProjector(); computeBone(); computeSport(); renumber();
 }});
 </script>'''
 
