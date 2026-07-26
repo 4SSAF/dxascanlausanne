@@ -174,9 +174,13 @@ def _bmi_class(bmi):
     return "Obésité"
 
 
-def _status_pill(st):
+def _status_pill(st, pid=None):
     tone, label = st
-    return f'<span class="status {tone}"><span class="d"></span>{label}</span>'
+    extra = ""
+    if pid:
+        # id + valeurs d'origine (population générale) pour restauration en JS
+        extra = f' id="{pid}" data-tone0="{tone}" data-label0="{esc(label)}"'
+    return f'<span class="status {tone}"{extra}><span class="d"></span>{label}</span>'
 
 
 def _hero(A):
@@ -266,7 +270,7 @@ def _scorecards(A):
     if "muscle" in st:
         cards.append(_scard("MM", "var(--muscle)", "Masse musculaire",
                             f'{fr(s.get("almi"),2)} <span style="font-size:13px;color:var(--muted)">kg/m²</span>',
-                            "ALMI · appendiculaire", st["muscle"]))
+                            "ALMI · appendiculaire", st["muscle"], pid="st-muscle"))
     if "bone" in st:
         basis = A.get("bmd_basis", "T")
         val = s.get("bmd_z") if basis == "Z" else s.get("bmd_t")
@@ -276,14 +280,14 @@ def _scorecards(A):
     if "bf" in st:
         cards.append(_scard("%G", "var(--brand)", "Masse grasse",
                             f'{fr(s.get("bf_pct"))} <span style="font-size:13px;color:var(--muted)">%</span>',
-                            f'{fr(s.get("fat_g",0)/1000 if s.get("fat_g") else None)} kg', st["bf"]))
+                            f'{fr(s.get("fat_g",0)/1000 if s.get("fat_g") else None)} kg', st["bf"], pid="st-bf"))
     return f'<div class="score">{"".join(cards)}</div>'
 
 
-def _scard(ic, color, title, big, cap, st):
+def _scard(ic, color, title, big, cap, st, pid=None):
     return f'''<div class="scard"><div class="top">
       <div class="ic" style="background:{color}">{ic}</div><h4>{title}</h4></div>
-      <div class="big">{big}</div><div class="cap">{cap}</div>{_status_pill(st)}</div>'''
+      <div class="big">{big}</div><div class="cap">{cap}</div>{_status_pill(st, pid)}</div>'''
 
 
 def _composition(A, img_skeletal, img_thermal):
@@ -954,6 +958,7 @@ def _script(A):
         "en": lang == "en",
         "sex": A["demo"]["sex"], "age": A["demo"]["age"],
         "curBF": A["snap"].get("bf_pct"),
+        "curALMI": A["snap"].get("almi"),
         "curLean": round(A["snap"]["lean_g"] / 1000, 1) if A["snap"].get("lean_g") else None,
         "velFat": A["velocity"]["fat_pct_per_month"], "velLean": A["velocity"]["lean_kg_per_month"],
         "defFatLoss": R.PROJ_FAT_LOSS_PCT_PER_MONTH, "defLeanGain": R.PROJ_LEAN_GAIN_KG_PER_MONTH,
@@ -1186,6 +1191,32 @@ function computeSport(){{
       bn.innerHTML='<b>'+s.label+'</b> — '+(EN?'bone loading: ':'sollicitation osseuse : ')+il[0]+' · '+il[1]+'.';
       bn.hidden=false; }}
   }}
+  // statuts (pastilles) sensibles au sport : muscle (ALMI) et masse grasse
+  if(!s){{ restorePill('st-muscle'); restorePill('st-bf'); }}
+  else {{
+    const a=CFG.curALMI, ab=s.almi;
+    if(a!=null && ab){{
+      if(a < ab[0]) setPill('st-muscle','warn', EN?'BELOW SPORT':'SOUS LE SPORT');
+      else if(a <= ab[2]) setPill('st-muscle','good', EN?'SPORT LEVEL':'NIVEAU SPORT');
+      else setPill('st-muscle','good', EN?'ABOVE SPORT':'AU-DESSUS');
+    }}
+    const bf=CFG.curBF, bb=s.bf;
+    if(bf!=null && bb){{
+      if(bf > bb[2]) setPill('st-bf','warn', EN?'HIGH / SPORT':'ÉLEVÉ / SPORT');
+      else if(bf >= bb[0]) setPill('st-bf','good', EN?'SPORT LEVEL':'NIVEAU SPORT');
+      else setPill('st-bf','good', EN?'VERY LEAN':'TRÈS SEC');
+    }}
+  }}
+}}
+function setPill(id, tone, label){{
+  const el=$(id); if(!el) return;
+  el.className='status '+tone;
+  el.innerHTML='<span class="d"></span>'+label;
+}}
+function restorePill(id){{
+  const el=$(id); if(!el) return;
+  el.className='status '+(el.dataset.tone0||'good');
+  el.innerHTML='<span class="d"></span>'+(el.dataset.label0||'');
 }}
 
 function bindToggles(){{
