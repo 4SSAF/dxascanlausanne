@@ -123,3 +123,8 @@ MEALS_DEFAULT = 4
 # Vitesses par défaut si aucun historique mesuré n'est disponible
 PROJ_FAT_LOSS_PCT_PER_MONTH = 0.7    # perte de %MG/mois en déficit modéré
 PROJ_LEAN_GAIN_KG_PER_MONTH = 0.3    # gain de masse maigre/mois (entraîné, surplus)
+
+
+# Version du moteur (affichée en pied de rapport pour vérifier les mises à jour)
+VERSION = "2.7"
+VERSION_DATE = "2026-07"

@@ -516,7 +516,7 @@ def _method(A):
       validé cliniquement. Les images DXA ne sont pas destinées à un usage diagnostique. Toute interprétation clinique relève
       d'un professionnel de santé. Données : export Hologic Horizon Wi / APEX (Motion LAB, Lausanne). Rapport généré automatiquement.</p>
     <div class="foot"><span>Motion LAB · Chemin du Petit-Flon 29 · 1052 Le Mont-sur-Lausanne · 021 512 40 00</span>
-      <span>Rapport 2.0</span></div></section>'''
+      <span>Rapport 2.0 · moteur v{R.VERSION} ({R.VERSION_DATE})</span></div></section>'''
 
 
 def _coach_panel(A):
