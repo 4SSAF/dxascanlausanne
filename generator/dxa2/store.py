@@ -76,6 +76,8 @@ def _exams_from_data(data) -> dict:
                              ("almi", "almi"), ("vat_mass_g", "vat_mass_g")]:
             if s.get(k_src) is not None and e.get(k_dst) is None:
                 e[k_dst] = s[k_src]
+        if s.get("regional_bmd"):
+            e["regional_bmd"] = s["regional_bmd"]
         if e.get("age") is None:
             e["age"] = data.get("age")
     return exams
@@ -123,6 +125,11 @@ def merge(data, path=None, write=True):
     data["lean_history"] = lean_h or data.get("lean_history", [])
     data["fat_history"] = fat_h or data.get("fat_history", [])
     data["mass_history"] = mass_h or data.get("mass_history", [])
+    # DMO régionale de l'examen précédent (comparaison longitudinale, même méthode)
+    rb_dates = [d for d in dates if rec["exams"][d].get("regional_bmd")]
+    if len(rb_dates) >= 2:
+        data["regional_bmd_prev"] = rec["exams"][rb_dates[-2]]["regional_bmd"]
+        data["regional_bmd_prev_date"] = _dt.date.fromisoformat(rb_dates[-2])
     n = len(dates)
     data["n_exams"] = max(data.get("n_exams", 0), n)
     return data, n

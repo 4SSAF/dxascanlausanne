@@ -75,9 +75,10 @@ def _rbar(label, pct, value, dim=False):
 
 
 def _rbar_bone(label, pct, value):
+    # value peut contenir du HTML de confiance (delta) -> ne pas échapper
     return (f'<div class="rbar"><span class="rl">{esc(label)}</span>'
             f'<div class="rt"><span class="rf" style="width:{pct:.0f}%;background:var(--bone)"></span></div>'
-            f'<span class="rv">{esc(value)}</span></div>')
+            f'<span class="rv">{value}</span></div>')
 
 
 def _line_svg(points, color, label):
@@ -376,6 +377,7 @@ def _bone(A):
     t = s.get("bmd_t")
     above = t is not None and t >= 0.3
     rb = s.get("regional_bmd", {})
+    prev_rb = A.get("regional_bmd_prev") or {}
     bars = ""
     if rb:
         mx = max([v for v in rb.values()] + [1])
@@ -383,7 +385,13 @@ def _bone(A):
         seen = set()
         for key, lbl in order:
             if key in rb and lbl not in seen:
-                bars += _rbar_bone(lbl, rb[key] / mx * 100, f'{fr(rb[key],3)} g/cm²')
+                val = f'{fr(rb[key],3)} g/cm²'
+                if key in prev_rb:
+                    dv = round(rb[key] - prev_rb[key], 3)
+                    col = "var(--good)" if dv > 0 else ("var(--warn)" if dv < 0 else "var(--muted)")
+                    val += (f' <span style="color:{col};font-size:10.5px;font-family:var(--font-mono)">'
+                            f'{"+" if dv>=0 else ""}{fr(dv,3)}</span>')
+                bars += _rbar_bone(lbl, rb[key] / mx * 100, val)
                 seen.add(lbl)
     # panneau droit : tendance si historique, sinon "point de départ"
     trend = A["trends"]["bmd"]
@@ -424,9 +432,9 @@ def _bone(A):
       <div class="card"><div class="eyebrow" style="margin-bottom:14px">Densité par région (g/cm²)</div>
         {right}<div style="margin-top:18px">{bars}</div>
         <p style="font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5">
-          Sous-régions du scan corps entier (sans T/Z) — utiles pour le <b>suivi</b> et la répartition,
-          mais <b>non diagnostiques</b> : ROI et base de référence différentes du rachis AP / hanche dédiés,
-          et le bassin n'est pas un site diagnostique reconnu.</p></div></div></section>'''
+          Sous-régions du scan corps entier (sans T/Z) — <b>non diagnostiques</b> (ROI et base de référence
+          différentes du rachis AP / hanche dédiés ; le bassin n'est pas un site reconnu). En revanche, le
+          <b>Δ vs examen précédent</b> (même machine, même méthode) est une comparaison valide pour le suivi.</p></div></div></section>'''
 
 
 def _trends_section(A):

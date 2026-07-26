@@ -123,7 +123,13 @@ def _parse_bmd_regional(lines) -> dict:
     for label, key in region_map.items():
         i = _find(lines, label)
         if i >= 0:
-            v = _nums_after(lines, i, 3)  # surface, cmo, dmo
+            # certaines lignes collent la 1re valeur au libellé (« Rachis Lomb 65.04 »)
+            v = []
+            tail = lines[i].split(label, 1)[-1]
+            mtail = re.search(r"-?\d+(?:[.,]\d+)?", tail)
+            if mtail:
+                v.append(_f(mtail.group()))
+            v += _nums_after(lines, i, 3 - len(v))  # surface, cmo, dmo
             if len(v) >= 3:
                 out["regional_bmd"][key] = v[2]
     # Total : surface, cmo, dmo, T, Z  (on choisit le "Total" plausible)

@@ -198,6 +198,8 @@ def analyze(data: dict) -> dict:
     out["trends"] = _trends(data)
     out["velocity"] = _velocity(data)
     out["since_last"] = _since_last(data)
+    out["regional_bmd_prev"] = data.get("regional_bmd_prev")
+    out["regional_bmd_prev_date"] = data.get("regional_bmd_prev_date")
 
     # métabolisme (BMR Cunningham) + nutrition par défaut
     out["metabolism"] = metabolism(snap, demo["weight_kg"])
