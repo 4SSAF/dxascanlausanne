@@ -958,4 +958,6 @@ def render(A: dict, img_skeletal=None, img_thermal=None) -> str:
     return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <title>Bilan Corporel DXA 2.0 — {esc(name)}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<style>{css}</style></head><body><div class="wrap">{body}</div>{script}</body></html>'''
+<style>{css}</style></head><body><div class="wrap">{body}</div>
+<button class="pdf-fab no-print" onclick="window.print()" title="Enregistrer le rapport en PDF">🖨 Exporter en PDF</button>
+{script}</body></html>'''

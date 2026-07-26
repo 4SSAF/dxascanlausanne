@@ -126,5 +126,5 @@ PROJ_LEAN_GAIN_KG_PER_MONTH = 0.3    # gain de masse maigre/mois (entraîné, su
 
 
 # Version du moteur (affichée en pied de rapport pour vérifier les mises à jour)
-VERSION = "2.7"
+VERSION = "2.8"
 VERSION_DATE = "2026-07"
