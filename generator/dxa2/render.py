@@ -530,9 +530,13 @@ def _coach_panel(A):
     has_nut = bool(A.get("metabolism"))
     has_proj = bool(A["snap"].get("bf_pct") and A["snap"].get("lean_g"))
     has_since = bool(A.get("since_last"))
+    has_hydra = bool((A.get("hydration") or {}).get("tbw_l"))
+    has_reco = bool(A.get("training_reco"))
     mods = [("bioage", "Âge biologique", True), ("since", "Depuis la dernière fois", has_since),
             ("metabolism", "Métabolisme (BMR)", has_nut),
             ("nutrition", "Besoins nutritionnels", has_nut), ("meals", "Répartition des repas", has_nut),
+            ("hydra", "Hydratation & compléments", has_hydra),
+            ("reco", "Recommandation d'entraînement", has_reco),
             ("projector", "Projecteur d'objectif", has_proj), ("trends", "Évolution / tendances", True)]
     checks = ""
     for key, lab, on in mods:
@@ -549,9 +553,14 @@ def _coach_panel(A):
                         for k, lab, _ in R.GOALS)
         trainings = "".join(f'<option value="{k}"{" selected" if k == R.TRAINING_DEFAULT else ""}>{esc(lab)} ({pct}% lip.)</option>'
                             for k, lab, pct in R.TRAINING)
+        rhythms = "".join(f'<option value="{k}"{" selected" if k == R.RHYTHM_DEFAULT else ""}>{esc(lab)}</option>'
+                          for k, lab, _ in R.RHYTHM)
+        pbasis = "FFM" if R.PROTEIN_BASIS == "ffm" else "poids"
         nut_controls = f'''
       <div class="cp-group"><label>Objectif</label>
         <select class="cp-select" id="nut-goal">{goals}</select></div>
+      <div class="cp-group"><label>Rythme (déficit/surplus)</label>
+        <select class="cp-select" id="nut-rhythm">{rhythms}</select></div>
       <div class="cp-group"><label>Niveau d'activité</label>
         <select class="cp-select" id="nut-activity">{acts}</select></div>
       <div class="cp-group"><label>Pratique sportive (ratio lip./gluc.)</label>
@@ -559,6 +568,8 @@ def _coach_panel(A):
       <div class="cp-group"><label>Repas / jour</label>
         <select class="cp-select" id="nut-meals"><option value="3">3 repas</option>
           <option value="4" selected>4 repas</option><option value="5">5 repas</option></select></div>
+      <div class="cp-group"><label>Protéines (g/kg {pbasis}) — vide = auto</label>
+        <input class="cp-select" type="number" min="1" max="3.5" step="0.1" id="nut-pgk" placeholder="auto" style="min-width:90px"></div>
       <div class="cp-group"><label>Forcer macros (g) — vide = auto</label>
         <div class="dxin"><input class="ov-in" type="number" min="0" step="1" id="ov-prot" placeholder="P">
           <input class="ov-in" type="number" min="0" step="1" id="ov-carb" placeholder="G">
@@ -665,6 +676,52 @@ def _meals(A):
     </div></section>'''
 
 
+def _hydra(A):
+    h = A.get("hydration") or {}
+    if not h.get("tbw_l"):
+        return ""
+    fiber0 = A["nutrition"]["fiber"] if A.get("nutrition") else None
+    return f'''<section data-mod="hydra">
+    <div class="sec-head"><span class="idx">·</span><h2>Hydratation, fibres &amp; compléments</h2>
+      <span class="note">Repères pratiques dérivés de la composition et des besoins.</span></div>
+    <div class="card">
+      <div class="kpi-row">
+        <div class="kpi"><div class="kpi-lab">Eau corporelle totale</div>
+          <div class="kpi-val" style="color:var(--metab)">{fr(h["tbw_l"])} <small>L</small></div>
+          <div class="kpi-sub">≈ 72 % de la masse maigre</div></div>
+        <div class="kpi"><div class="kpi-lab">Apport hydrique cible</div>
+          <div class="kpi-val" style="color:var(--brand)">{fr(h["water_l"])} <small>L/j</small></div>
+          <div class="kpi-sub">~35 ml/kg · + pertes à l'effort</div></div>
+        <div class="kpi"><div class="kpi-lab">Fibres</div>
+          <div class="kpi-val" style="color:var(--good)"><span id="fiber-val">{fiber0 if fiber0 is not None else "—"}</span> <small>g/j</small></div>
+          <div class="kpi-sub">~14 g / 1000 kcal</div></div>
+        <div class="kpi"><div class="kpi-lab">Créatine</div>
+          <div class="kpi-val" style="color:var(--muscle)">{R.CREATINE_G_PER_DAY} <small>g/j</small></div>
+          <div class="kpi-sub">monohydrate, en continu</div></div>
+      </div>
+      <div class="tag-note" style="margin-top:14px"><span>⏱</span><div><b>Timing péri-entraînement :</b>
+        20–40 g de protéines dans les ~2 h autour de la séance ; concentrez une partie des <b>glucides</b>
+        avant/après l'entraînement, surtout si la séance est longue ou intense (endurance). Hors entraînement,
+        la répartition compte moins que le total quotidien.</div></div>
+    </div></section>'''
+
+
+def _reco(A):
+    recs = A.get("training_reco") or []
+    if not recs:
+        return ""
+    cards = ""
+    for i, (h, p) in enumerate(recs, 1):
+        cards += (f'<div class="act"><div class="rank">{i}</div><div>'
+                  f'<h4>{esc(h)}</h4><p>{esc(p)}</p></div></div>')
+    return f'''<section data-mod="reco">
+    <div class="sec-head"><span class="idx">·</span><h2 style="color:var(--muscle)">Recommandation d'entraînement</h2>
+      <span class="note">Fondé sur les signaux DXA — principes evidence-based (volume, RIR, fréquence).</span></div>
+    <div class="actions">{cards}</div>
+    <p style="font-size:11px;color:var(--muted);margin-top:10px">Repères généraux, à adapter au niveau, à la
+      récupération et aux préférences du client.</p></section>'''
+
+
 def _bone_dx(A):
     """Bloc diagnostic osseux sur sites dédiés — masqué tant qu'aucune valeur saisie (JS)."""
     return '''<section data-mod="bonedx" class="hidden" id="bonedx-block">
@@ -762,6 +819,8 @@ def _script(A):
             "protFFM": R.PROTEIN_G_PER_KG_FFM, "protBW": R.PROTEIN_G_PER_KG_BW,
             "mpsPerKg": R.PROTEIN_PER_MEAL_G_PER_KG,
             "trainingFat": {k: v for k, _, v in R.TRAINING},
+            "rhythm": {k: v for k, _, v in R.RHYTHM},
+            "fiberPer1000": R.FIBER_G_PER_1000KCAL,
         })
     return f'''<script>
 const CFG = {_json.dumps(cfg)};
@@ -781,13 +840,17 @@ function computeNutrition(){{
   if(!$('nut-goal')) return;
   const goal = $('nut-goal').value, act = $('nut-activity').value, meals = +$('nut-meals').value;
   const training = $('nut-training') ? $('nut-training').value : 'mixte';
+  const rhythm = $('nut-rhythm') ? $('nut-rhythm').value : 'modere';
   const tdee = Math.round(CFG.bmr * CFG.activity[act]);
-  const kcalTarget = Math.round(tdee * (1 + CFG.goalAdj[goal]));
+  const rm = CFG.rhythm[rhythm] || {{deficit:-0.20, surplus:0.10}};
+  const gadj = goal==='deficit' ? rm.deficit : (goal==='surplus' ? rm.surplus : 0);
+  const kcalTarget = Math.round(tdee * (1 + gadj));
   const useFFM = (CFG.proteinBasis === 'ffm' && CFG.ffm);
   const base = useFFM ? CFG.ffm : CFG.weight;
-  // surcharges manuelles (grammes forcés) sinon calcul
-  const ovP=_ovVal('ov-prot'), ovC=_ovVal('ov-carb'), ovF=_ovVal('ov-fat');
-  const protein = !isNaN(ovP) ? Math.round(ovP) : Math.round(base * (useFFM?CFG.protFFM[goal]:CFG.protBW[goal]));
+  // surcharges : grammes forcés > g/kg saisi > défaut par objectif
+  const ovP=_ovVal('ov-prot'), ovC=_ovVal('ov-carb'), ovF=_ovVal('ov-fat'), pgk=_ovVal('nut-pgk');
+  const protein = !isNaN(ovP) ? Math.round(ovP)
+                : Math.round(base * (!isNaN(pgk) ? pgk : (useFFM?CFG.protFFM[goal]:CFG.protBW[goal])));
   const fatPct = CFG.trainingFat[training] || 35;
   const fat = !isNaN(ovF) ? Math.round(ovF) : Math.round(kcalTarget * fatPct/100/9);
   const carbs = !isNaN(ovC) ? Math.round(ovC) : Math.max(0, Math.round((kcalTarget - protein*4 - fat*9)/4));
@@ -816,6 +879,7 @@ function computeNutrition(){{
       $('fat-note').textContent = 'Lipides ≈ '+pf+' % des kcal' + (out ? ' — hors fourchette 30–40 % (surcharge)' : ' (cible '+fatPct+' % · '+training+')');
       $('fat-note').style.color = out ? 'var(--warn)' : 'var(--muted)';
     }}
+    if($('fiber-val')) $('fiber-val').textContent = Math.round(kcal * CFG.fiberPer1000 / 1000);
   }}
   if($('meals-container')){{
     const perK = Math.round(kcal/meals), perP = Math.round(protein/meals);
@@ -924,10 +988,10 @@ function bindToggles(){{
       renumber();
     }});
   }});
-  ['nut-goal','nut-activity','nut-meals','nut-training'].forEach(id => {{
+  ['nut-goal','nut-activity','nut-meals','nut-training','nut-rhythm'].forEach(id => {{
     const el = $(id); if(el) el.addEventListener('change', computeNutrition);
   }});
-  ['ov-prot','ov-carb','ov-fat'].forEach(id => {{
+  ['ov-prot','ov-carb','ov-fat','nut-pgk'].forEach(id => {{
     const el = $(id); if(el) el.addEventListener('input', computeNutrition);
   }});
   ['proj-bf','proj-lean'].forEach(id => {{
@@ -977,6 +1041,8 @@ def render(A: dict, img_skeletal=None, img_thermal=None) -> str:
         _bone(A),
         _bone_dx(A),
         nutri,
+        _hydra(A),
+        _reco(A),
         proj,
         _trends_section(A),
         _interp_section(A),

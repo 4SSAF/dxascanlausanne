@@ -126,7 +126,7 @@ PROJ_LEAN_GAIN_KG_PER_MONTH = 0.3    # gain de masse maigre/mois (entraîné, su
 
 
 # Version du moteur (affichée en pied de rapport pour vérifier les mises à jour)
-VERSION = "2.9"
+VERSION = "3.0"
 VERSION_DATE = "2026-07"
 
 
@@ -151,3 +151,25 @@ CLINIC_NAME = ""                                   # nom du centre (vide = neutr
 CLINIC_TAGLINE = "Analyse de composition corporelle"
 CLINIC_FOOTER = ""                                 # ligne contact/adresse en pied (vide = rien)
 SHOW_LOGO = False                                  # afficher un logo embarqué (logo.b64)
+
+
+# ---------------------------------------------------------------------------
+# Rythme du déficit / surplus (magnitude de l'ajustement calorique)
+# ---------------------------------------------------------------------------
+RHYTHM = [
+    ("doux", "Doux", {"deficit": -0.15, "surplus": 0.08}),
+    ("modere", "Modéré", {"deficit": -0.20, "surplus": 0.10}),
+    ("agressif", "Agressif", {"deficit": -0.25, "surplus": 0.15}),
+]
+RHYTHM_DEFAULT = "modere"
+
+# Protéines : bornes du curseur g/kg (base = FFM si PROTEIN_BASIS='ffm')
+PROTEIN_GKG_MIN, PROTEIN_GKG_MAX = 1.6, 3.1
+
+# ---------------------------------------------------------------------------
+# Hydratation & compléments
+# ---------------------------------------------------------------------------
+TBW_FFM_FRACTION = 0.723     # eau corporelle ≈ 72,3 % de la masse maigre (Wang 1999)
+WATER_ML_PER_KG = 35         # apport hydrique cible (ml/kg/j) — base
+FIBER_G_PER_1000KCAL = 14    # fibres cibles (Institute of Medicine)
+CREATINE_G_PER_DAY = "3–5"   # monohydrate, entretien

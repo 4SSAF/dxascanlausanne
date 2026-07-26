@@ -37,30 +37,35 @@ def metabolism(snap, weight_kg):
 
 
 def nutrition(bmr, weight_kg, ffm_kg=None, activity_key=None, goal_key=None,
-              meals=None, training_key=None, ov=None):
+              meals=None, training_key=None, ov=None, rhythm_key=None, protein_gkg=None):
     """Besoins caloriques + macros + répartition par repas.
 
+    - ajustement calorique = direction (objectif) × magnitude (rythme) ;
     - lipides = % des kcal selon la pratique sportive (30–40 %) ;
     - glucides = reste des kcal ;
-    - `ov` = surcharges manuelles {protein, carbs, fat} (g) forcées par le coach.
+    - `protein_gkg` force la cible protéique (g/kg de la base) ;
+    - `ov` = surcharges manuelles {protein, carbs, fat} (g).
     """
     ov = ov or {}
     act = dict((k, v) for k, _, v in R.ACTIVITY)[activity_key or R.ACTIVITY_DEFAULT]
-    gadj = dict((k, v) for k, _, v in R.GOALS)[goal_key or R.GOAL_DEFAULT]
     goal_key = goal_key or R.GOAL_DEFAULT
+    rhythm_key = rhythm_key or R.RHYTHM_DEFAULT
+    rmap = dict((k, v) for k, _, v in R.RHYTHM)[rhythm_key]
+    gadj = rmap["deficit"] if goal_key == "deficit" else (rmap["surplus"] if goal_key == "surplus" else 0.0)
     training_key = training_key or R.TRAINING_DEFAULT
     fat_pct = dict((k, v) for k, _, v in R.TRAINING)[training_key]
     meals = meals or R.MEALS_DEFAULT
     tdee = round(bmr * act)
     kcal_target = round(tdee * (1 + gadj))
 
-    # protéines (base FFM ou poids), sauf surcharge
-    if R.PROTEIN_BASIS == "ffm" and ffm_kg:
-        p_per_kg = R.PROTEIN_G_PER_KG_FFM[goal_key]
-        protein = round(ffm_kg * p_per_kg)
+    # base protéique (FFM ou poids)
+    use_ffm = R.PROTEIN_BASIS == "ffm" and ffm_kg
+    base = ffm_kg if use_ffm else weight_kg
+    if protein_gkg:
+        p_per_kg = protein_gkg
     else:
-        p_per_kg = R.PROTEIN_G_PER_KG_BW[goal_key]
-        protein = round(weight_kg * p_per_kg)
+        p_per_kg = (R.PROTEIN_G_PER_KG_FFM if use_ffm else R.PROTEIN_G_PER_KG_BW)[goal_key]
+    protein = round(base * p_per_kg)
     if ov.get("protein"):
         protein = ov["protein"]
     # lipides = % des kcal cible, sauf surcharge
@@ -74,15 +79,51 @@ def nutrition(bmr, weight_kg, ffm_kg=None, activity_key=None, goal_key=None,
     kcal = protein * R.KCAL["prot"] + carbs * R.KCAL["carb"] + fat * R.KCAL["fat"]
     per_meal_p = round(protein / meals)
     mps_min = round(weight_kg * R.PROTEIN_PER_MEAL_G_PER_KG)
+    fiber = round(kcal * R.FIBER_G_PER_1000KCAL / 1000.0)
     return {
         "activity": activity_key or R.ACTIVITY_DEFAULT, "goal": goal_key, "meals": meals,
-        "training": training_key, "fat_pct_target": fat_pct,
+        "training": training_key, "fat_pct_target": fat_pct, "rhythm": rhythm_key,
         "tdee": tdee, "kcal_target": kcal_target, "kcal": kcal,
-        "protein": protein, "carbs": carbs, "fat": fat, "p_per_kg": p_per_kg,
+        "protein": protein, "carbs": carbs, "fat": fat, "p_per_kg": p_per_kg, "fiber": fiber,
         "kcal_p": protein * 4, "kcal_c": carbs * 4, "kcal_f": fat * 9,
         "per_meal_p": per_meal_p, "mps_min": mps_min,
         "per_meal_kcal": round(kcal / meals),
     }
+
+
+def hydration(snap, weight_kg):
+    """Eau corporelle totale (depuis la masse maigre) + apport hydrique cible."""
+    lean_g = snap.get("lean_bmc_g") or snap.get("lean_g")
+    tbw = round((lean_g / 1000.0) * R.TBW_FFM_FRACTION, 1) if lean_g else None
+    water = round(weight_kg * R.WATER_ML_PER_KG / 1000.0, 1) if weight_kg else None
+    return {"tbw_l": tbw, "water_l": water}
+
+
+def training_reco(out):
+    """Recommandations d'entraînement rule-based, liées aux signaux détectés."""
+    snap = out["snap"]; a = R.ANCHORS[out["demo"]["sex"]]
+    recs = []
+    muscle_low = snap.get("almi") is not None and snap["almi"] < a["almi_median"]
+    asym = out.get("arm_asym") and out["arm_asym"]["flag"]
+    if muscle_low:
+        recs.append(("Prioriser l'hypertrophie",
+                     "Levier n°1 ici. 10–20 séries dures/groupe musculaire/semaine, 6–20 répétitions, "
+                     "proximité de l'échec RIR 1–3, chaque muscle 2×/semaine. Surcharge progressive semaine après semaine."))
+    else:
+        recs.append(("Entretenir la masse musculaire",
+                     "10–15 séries/groupe/semaine, RIR 1–3, fréquence 2×/semaine, surcharge progressive."))
+    if asym:
+        recs.append(("Corriger l'asymétrie",
+                     f"Travail unilatéral (haltères/câbles) en démarrant par le côté faible ({out['arm_asym']['bigger']} plus fort), "
+                     "répétitions égalisées, 2–3×/semaine."))
+    recs.append(("Charge osseuse",
+                 "Inclure des charges lourdes (3–6 répétitions) et des impacts (sauts, course) : "
+                 "stimulus clé pour maintenir/augmenter la densité osseuse."))
+    goal = out.get("nutrition", {}).get("goal")
+    if goal == "deficit":
+        recs.append(("En déficit : préserver le muscle",
+                     "Maintenir le volume et l'intensité de musculation ; le cardio en complément, pas en remplacement."))
+    return recs[:4]
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +268,8 @@ def analyze(data: dict) -> dict:
                                      ffm_kg=out["metabolism"]["ffm_kg"])
     else:
         out["nutrition"] = None
+    out["hydration"] = hydration(snap, demo["weight_kg"])
+    out["training_reco"] = training_reco(out)
 
     # interprétation + actions
     out["interp"] = _interpret(out)
