@@ -171,8 +171,12 @@ def analyze(data: dict) -> dict:
                            ["0", f"{a['vat_area_thr']:.0f} seuil élevé", "risque"]),
     }
 
+    # base diagnostique osseuse (T pour ménopausée/≥50, sinon Z) — ISCD
+    out["bmd_basis"] = "T" if ((sex == "M" and demo["age"] >= 50)
+                               or (sex == "F" and demo["age"] >= 51)) else "Z"
+
     # statuts (scorecards)
-    out["status"] = _statuses(snap, a, sex)
+    out["status"] = _statuses(snap, a, sex, out["bmd_basis"])
 
     # âge biologique
     out["bioage"] = bio_age(demo, snap)
@@ -215,7 +219,7 @@ def analyze(data: dict) -> dict:
     return out
 
 
-def _statuses(snap, a, sex):
+def _statuses(snap, a, sex, bmd_basis="T"):
     st = {}
     # graisse viscérale
     vm = snap.get("vat_mass_g")
@@ -235,17 +239,27 @@ def _statuses(snap, a, sex):
             st["muscle"] = ("warn", "À DÉVELOPPER")
         else:
             st["muscle"] = ("good", "SOLIDE")
-    # os
-    t = snap.get("bmd_t")
-    if t is not None:
-        if t <= -2.5:
-            st["bone"] = ("risk", "OSTÉOPOROSE")
-        elif t < -1.0:
-            st["bone"] = ("warn", "OSTÉOPÉNIE")
-        elif t >= 0.3:
-            st["bone"] = ("good", "SUPÉRIEUR")
-        else:
-            st["bone"] = ("good", "NORMAL")
+    # os — vocabulaire selon la base diagnostique (T vs Z)
+    if bmd_basis == "T":
+        t = snap.get("bmd_t")
+        if t is not None:
+            if t <= -2.5:
+                st["bone"] = ("risk", "OSTÉOPOROSE")
+            elif t < -1.0:
+                st["bone"] = ("warn", "OSTÉOPÉNIE")
+            elif t >= 0.3:
+                st["bone"] = ("good", "SUPÉRIEUR")
+            else:
+                st["bone"] = ("good", "NORMAL")
+    else:  # base Z (préménopause / homme <50) : pas de terme ostéopénie/ostéoporose
+        z = snap.get("bmd_z")
+        if z is not None:
+            if z <= -2.0:
+                st["bone"] = ("warn", "SOUS LA NORMALE ÂGE")
+            elif z >= 0.5:
+                st["bone"] = ("good", "SUPÉRIEUR / ÂGE")
+            else:
+                st["bone"] = ("good", "NORMAL / ÂGE")
     # masse grasse
     bf = snap.get("bf_pct")
     if bf is not None:

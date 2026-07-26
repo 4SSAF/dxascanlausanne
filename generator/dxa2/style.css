@@ -314,3 +314,13 @@ section{margin-top:30px}
 .delta-chip.warn{background:var(--warn-bg);color:var(--warn)}
 .delta-chip.neutral{background:var(--inset);color:var(--ink-2)}
 .since-sig{font-size:10px;font-family:var(--font-mono);color:var(--good);margin-left:6px}
+
+/* saisie diagnostic osseux (panneau) */
+.dxrow{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+.dxsite{display:flex;flex-direction:column;gap:4px}
+.dxsite>span{font-size:10px;font-family:var(--font-mono);letter-spacing:.04em;color:var(--muted)}
+.dxin{display:flex;gap:5px}
+.dxsite input,.dxsel{padding:7px 8px;border:1px solid var(--hairline-2);border-radius:8px;
+  background:var(--surface);color:var(--ink);font-size:12.5px;font-family:var(--font-mono)}
+.dxsite input{width:56px}
+.dxsel{min-width:110px;font-family:var(--font-sans)}

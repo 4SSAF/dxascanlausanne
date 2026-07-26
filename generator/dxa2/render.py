@@ -235,9 +235,11 @@ def _scorecards(A):
                             f'{fr(s.get("almi"),2)} <span style="font-size:13px;color:var(--muted)">kg/m²</span>',
                             "ALMI · appendiculaire", st["muscle"]))
     if "bone" in st:
+        basis = A.get("bmd_basis", "T")
+        val = s.get("bmd_z") if basis == "Z" else s.get("bmd_t")
         cards.append(_scard("OS", "var(--bone)", "Densité osseuse",
-                            f'{fr(s.get("bmd_t"),1)} <span style="font-size:13px;color:var(--muted)">T</span>',
-                            f'DMO {fr(s.get("bmd_total"),3)} g/cm²', st["bone"]))
+                            f'{fr(val, 1)} <span style="font-size:13px;color:var(--muted)">{basis}</span>',
+                            f'corps entier · non diagnostique', st["bone"]))
     if "bf" in st:
         cards.append(_scard("%G", "var(--brand)", "Masse grasse",
                             f'{fr(s.get("bf_pct"))} <span style="font-size:13px;color:var(--muted)">%</span>',
@@ -397,15 +399,28 @@ def _bone(A):
         right = f'''<div class="callout" style="background:var(--good-bg);border-color:transparent">
           <div class="cn" style="color:var(--good)">Z {fr(z) if z is not None else "—"}<small>vs même âge/sexe</small></div>
           <div class="cc" style="color:var(--ink-2)">Point de départ {"<b style='color:var(--good)'>excellent</b>" if above else "établi"}. À maintenir via charges et impacts ; première tendance au prochain scan.</div></div>'''
-    interp = ("densité osseuse <b style='color:var(--good)'>au-dessus</b> de la moyenne du jeune adulte."
-              if above else "densité osseuse <b>normale</b>.")
+    basis = A.get("bmd_basis", "T")
+    z = s.get("bmd_z")
+    if basis == "Z":
+        if z is not None and z <= -2.0:
+            interp = "densité <b style='color:var(--warn)'>sous la fourchette attendue pour l'âge</b> (Z ≤ −2,0)."
+        else:
+            interp = "densité <b style='color:var(--good)'>dans la fourchette attendue pour l'âge</b> (Z-score)."
+        basis_note = ("À cet âge/sexe, c'est le <b>Z-score</b> (vs même âge) qui fait foi — "
+                      "les termes « ostéopénie / ostéoporose » ne s'appliquent pas.")
+    else:
+        interp = ("densité osseuse <b style='color:var(--good)'>au-dessus</b> de la moyenne du jeune adulte."
+                  if above else "densité osseuse <b>normale</b> (T &gt; −1,0).")
+        basis_note = "Chez la femme ménopausée / l'homme ≥ 50 ans, le <b>T-score</b> classe selon l'OMS."
     return f'''<section>
     <div class="sec-head"><span class="idx">05</span><h2 style="color:var(--bone)">Os — densité minérale</h2>
-      <span class="note">Le pic de masse osseuse conditionne le risque de fracture des décennies plus tard.</span></div>
+      <span class="note">Indicateur global. Le diagnostic OMS repose sur des sites dédiés (§ ci-dessous).</span></div>
     <div class="grid g-2">
-      <div class="card"><div class="eyebrow" style="margin-bottom:14px">T-score corps entier vs jeune adulte</div>
-        {_meter("DMO totale", "", f'{fr(s.get("bmd_total"),3)} <small>g/cm² · T {fr(t)}</small>', A["meters"]["bmd"])}
-        <p style="font-size:13px;color:var(--ink-2);margin-top:14px;line-height:1.55">T-score <b>{fr(t)}</b>, Z-score <b>{fr(s.get("bmd_z"))}</b> : {interp}</p></div>
+      <div class="card"><div class="eyebrow" style="margin-bottom:14px">DMO corps entier — indicateur, non diagnostique</div>
+        {_meter("DMO totale", "", f'{fr(s.get("bmd_total"),3)} <small>g/cm² · T {fr(t)} · Z {fr(z)}</small>', A["meters"]["bmd"])}
+        <p style="font-size:13px;color:var(--ink-2);margin-top:14px;line-height:1.55">T-score <b>{fr(t)}</b>, Z-score <b>{fr(z)}</b> : {interp}</p>
+        <div class="tag-note"><span>ⓘ</span><div>Le DXA <b>corps entier</b> n'est pas l'outil de diagnostic de l'ostéoporose.
+          {basis_note} Diagnostic fiable = <b>rachis AP (L1–L4) + col fémoral + hanche totale</b>, sur le site le plus bas.</div></div></div>
       <div class="card"><div class="eyebrow" style="margin-bottom:14px">Densité par région (g/cm²)</div>
         {right}<div style="margin-top:18px">{bars}</div></div></div></section>'''
 
@@ -529,6 +544,21 @@ def _coach_panel(A):
         <input class="cp-select" type="number" step="0.5" id="proj-bf" style="min-width:100px"></div>
       <div class="cp-group"><label>Cible masse maigre (kg)</label>
         <input class="cp-select" type="number" step="0.5" id="proj-lean" style="min-width:120px"></div>'''
+    # diagnostic osseux — sites dédiés (saisie manuelle depuis un scan rachis+hanche)
+    meno = ""
+    if A["demo"]["sex"] == "F":
+        post = " selected" if A["demo"]["age"] >= 51 else ""
+        pre = " selected" if A["demo"]["age"] < 51 else ""
+        meno = (f'<div class="dxsite"><span>Statut</span><select id="dx-meno" class="dxsel">'
+                f'<option value="post"{post}>Post-méno</option><option value="pre"{pre}>Préméno</option></select></div>')
+    bonedx = f'''<div class="cp-group" style="flex-basis:100%">
+      <label>Diagnostic osseux — scan dédié rachis + hanche (T-score ; Z si &lt;50 ou préménopause)</label>
+      <div class="dxrow">
+        <div class="dxsite"><span>Rachis L1–L4</span><div class="dxin"><input type="number" step="0.1" id="dx-spine-t" placeholder="T"><input type="number" step="0.1" id="dx-spine-z" placeholder="Z"></div></div>
+        <div class="dxsite"><span>Col fémoral</span><div class="dxin"><input type="number" step="0.1" id="dx-neck-t" placeholder="T"><input type="number" step="0.1" id="dx-neck-z" placeholder="Z"></div></div>
+        <div class="dxsite"><span>Hanche totale</span><div class="dxin"><input type="number" step="0.1" id="dx-hip-t" placeholder="T"><input type="number" step="0.1" id="dx-hip-z" placeholder="Z"></div></div>
+        {meno}
+      </div></div>'''
     return f'''<div class="coach-panel no-print">
     <span class="cp-tag">Panneau coach — n'apparaît pas dans le PDF</span>
     <h3>Personnaliser le rapport selon le client</h3>
@@ -538,7 +568,8 @@ def _coach_panel(A):
       {nut_controls}{proj_controls}
       <button class="cp-export" onclick="window.print()">🖨 Exporter en PDF</button>
     </div>
-    <div class="cp-hint">Cochez/décochez les sections, ajustez l'objectif, puis « Exporter en PDF » : le PDF ne contiendra que ce qui est affiché.</div>
+    <div class="cp-row" style="margin-top:14px">{bonedx}</div>
+    <div class="cp-hint">Cochez/décochez les sections, ajustez l'objectif, saisissez le scan osseux dédié si disponible, puis « Exporter en PDF » : le PDF ne contiendra que ce qui est affiché.</div>
   </div>'''
 
 
@@ -607,6 +638,20 @@ def _meals(A):
     </div></section>'''
 
 
+def _bone_dx(A):
+    """Bloc diagnostic osseux sur sites dédiés — masqué tant qu'aucune valeur saisie (JS)."""
+    return '''<section data-mod="bonedx" class="hidden" id="bonedx-block">
+    <div class="sec-head"><span class="idx">·</span><h2 style="color:var(--bone)">Diagnostic osseux — sites dédiés</h2>
+      <span class="note">Rachis AP + hanche · classification sur le site le plus bas (ISCD/OMS).</span></div>
+    <div class="card">
+      <div id="bonedx-verdict" style="display:flex;align-items:center;flex-wrap:wrap;margin-bottom:8px"></div>
+      <div id="bonedx-rows"></div>
+      <p style="font-size:11.5px;color:var(--muted);margin-top:12px;line-height:1.5">
+        T-score (femme ménopausée / homme ≥ 50 ans) : ostéoporose ≤ −2,5 · ostéopénie −1 à −2,5 · normal &gt; −1.
+        Sinon Z-score : « sous la fourchette attendue pour l'âge » si ≤ −2,0. Diagnostic clinique réservé au médecin.</p>
+    </div></section>'''
+
+
 def _since(A):
     s = A.get("since_last")
     if not s:
@@ -670,22 +715,26 @@ def _projector(A):
 
 
 def _script(A):
-    mb = A["metabolism"]
+    mb = A.get("metabolism")
     cfg = {
-        "weight": A["demo"]["weight_kg"], "bmr": mb["bmr"], "ffm": mb["ffm_kg"],
-        "activity": {k: v for k, _, v in R.ACTIVITY},
-        "activityLab": {k: lab for k, lab, _ in R.ACTIVITY},
-        "goalAdj": {k: v for k, _, v in R.GOALS},
-        "goalLab": {k: lab for k, lab, _ in R.GOALS},
-        "proteinBasis": R.PROTEIN_BASIS,
-        "protFFM": R.PROTEIN_G_PER_KG_FFM, "protBW": R.PROTEIN_G_PER_KG_BW,
-        "fatPerKg": R.FAT_G_PER_KG, "mpsPerKg": R.PROTEIN_PER_MEAL_G_PER_KG,
+        "sex": A["demo"]["sex"], "age": A["demo"]["age"],
         "curBF": A["snap"].get("bf_pct"),
         "curLean": round(A["snap"]["lean_g"] / 1000, 1) if A["snap"].get("lean_g") else None,
         "velFat": A["velocity"]["fat_pct_per_month"], "velLean": A["velocity"]["lean_kg_per_month"],
         "defFatLoss": R.PROJ_FAT_LOSS_PCT_PER_MONTH, "defLeanGain": R.PROJ_LEAN_GAIN_KG_PER_MONTH,
         "bfFloor": R.ANCHORS[A["demo"]["sex"]]["bf_athletic"] - 3,
     }
+    if mb:
+        cfg.update({
+            "weight": A["demo"]["weight_kg"], "bmr": mb["bmr"], "ffm": mb["ffm_kg"],
+            "activity": {k: v for k, _, v in R.ACTIVITY},
+            "activityLab": {k: lab for k, lab, _ in R.ACTIVITY},
+            "goalAdj": {k: v for k, _, v in R.GOALS},
+            "goalLab": {k: lab for k, lab, _ in R.GOALS},
+            "proteinBasis": R.PROTEIN_BASIS,
+            "protFFM": R.PROTEIN_G_PER_KG_FFM, "protBW": R.PROTEIN_G_PER_KG_BW,
+            "fatPerKg": R.FAT_G_PER_KG, "mpsPerKg": R.PROTEIN_PER_MEAL_G_PER_KG,
+        })
     return f'''<script>
 const CFG = {_json.dumps(cfg)};
 function $(id){{return document.getElementById(id);}}
@@ -791,6 +840,46 @@ function computeProjector(){{
   }}
 }}
 
+function computeBone(){{
+  const blk = $('bonedx-block'); if(!blk) return;
+  let basis, basisLbl;
+  if(CFG.sex === 'M'){{ basis = CFG.age >= 50 ? 'T' : 'Z'; }}
+  else {{ const m = $('dx-meno'); basis = (m ? m.value : (CFG.age>=51?'post':'pre')) === 'post' ? 'T' : 'Z'; }}
+  basisLbl = basis === 'T' ? 'T-score (OMS)' : 'Z-score (vs âge)';
+  const sites = [['Rachis L1–L4','dx-spine'], ['Col fémoral','dx-neck'], ['Hanche totale','dx-hip']];
+  const rows = [];
+  for(const [lab,id] of sites){{
+    const t = parseFloat($(id+'-t').value), z = parseFloat($(id+'-z').value);
+    const v = basis === 'T' ? t : z;
+    if(!isNaN(v)) rows.push({{lab, v, t, z}});
+  }}
+  if(!rows.length){{ blk.classList.add('hidden'); renumber(); return; }}
+  blk.classList.remove('hidden');
+  rows.sort((a,b)=>a.v-b.v);
+  const low = rows[0];
+  let verdict, cls;
+  if(basis === 'T'){{
+    if(low.v <= -2.5){{verdict='Ostéoporose'; cls='risk';}}
+    else if(low.v < -1.0){{verdict='Ostéopénie'; cls='warn';}}
+    else {{verdict='Densité normale'; cls='good';}}
+  }} else {{
+    if(low.v <= -2.0){{verdict='Sous la fourchette attendue pour l\\'âge'; cls='warn';}}
+    else {{verdict='Dans la fourchette attendue pour l\\'âge'; cls='good';}}
+  }}
+  const fmt = x => isNaN(x) ? '—' : (x>0?'+':'') + x.toString().replace('.',',');
+  let tbl = '<div class="since-grid">';
+  for(const r of rows){{
+    const isLow = (r === low);
+    tbl += '<div class="since-row"><span class="sl">'+r.lab+(isLow?' <span style=\\'font-family:var(--font-mono);font-size:10px;color:var(--muted)\\'>· site déterminant</span>':'')+'</span>'+
+      '<span class="sv">T '+fmt(r.t)+' · Z '+fmt(r.z)+'</span>'+
+      '<span class="delta-chip '+(isLow?cls:'neutral')+'">'+basis+' '+fmt(r.v)+'</span></div>';
+  }}
+  tbl += '</div>';
+  $('bonedx-verdict').innerHTML = '<span class="delta-chip '+cls+'" style="min-width:0">'+verdict+'</span>'+
+    '<span style="font-size:12.5px;color:var(--ink-2);margin-left:10px">base : '+basisLbl+' · sur le site le plus bas ('+low.lab+')</span>';
+  $('bonedx-rows').innerHTML = tbl;
+}}
+
 function bindToggles(){{
   document.querySelectorAll('.cp-check input[data-toggle]').forEach(cb => {{
     cb.addEventListener('change', () => {{
@@ -805,6 +894,10 @@ function bindToggles(){{
   ['proj-bf','proj-lean'].forEach(id => {{
     const el = $(id); if(el) el.addEventListener('input', computeProjector);
   }});
+  ['dx-spine-t','dx-spine-z','dx-neck-t','dx-neck-z','dx-hip-t','dx-hip-z','dx-meno'].forEach(id => {{
+    const el = $(id); if(el) el.addEventListener('input', computeBone);
+    if(el) el.addEventListener('change', computeBone);
+  }});
 }}
 
 function initProjectorDefaults(){{
@@ -815,7 +908,7 @@ function initProjectorDefaults(){{
 }}
 
 document.addEventListener('DOMContentLoaded', () => {{
-  bindToggles(); initProjectorDefaults(); computeNutrition(); computeProjector(); renumber();
+  bindToggles(); initProjectorDefaults(); computeNutrition(); computeProjector(); computeBone(); renumber();
 }});
 </script>'''
 
@@ -831,6 +924,7 @@ def render(A: dict, img_skeletal=None, img_thermal=None) -> str:
     if A.get("metabolism"):
         nutri = _metabolism(A) + _nutrition(A) + _meals(A)
     proj = _projector(A) if (A["snap"].get("bf_pct") and A["snap"].get("lean_g")) else ""
+    script = _script(A)
 
     body = "".join([
         _header(A, subtitle),
@@ -842,13 +936,13 @@ def render(A: dict, img_skeletal=None, img_thermal=None) -> str:
         _muscle(A),
         _fat(A),
         _bone(A),
+        _bone_dx(A),
         nutri,
         proj,
         _trends_section(A),
         _interp_section(A),
         _method(A),
     ])
-    script = _script(A) if A.get("metabolism") else ""
     return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <title>Bilan Corporel DXA 2.0 — {esc(name)}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
