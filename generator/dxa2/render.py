@@ -422,7 +422,11 @@ def _bone(A):
         <div class="tag-note"><span>ⓘ</span><div>Le DXA <b>corps entier</b> n'est pas l'outil de diagnostic de l'ostéoporose.
           {basis_note} Diagnostic fiable = <b>rachis AP (L1–L4) + col fémoral + hanche totale</b>, sur le site le plus bas.</div></div></div>
       <div class="card"><div class="eyebrow" style="margin-bottom:14px">Densité par région (g/cm²)</div>
-        {right}<div style="margin-top:18px">{bars}</div></div></div></section>'''
+        {right}<div style="margin-top:18px">{bars}</div>
+        <p style="font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5">
+          Sous-régions du scan corps entier (sans T/Z) — utiles pour le <b>suivi</b> et la répartition,
+          mais <b>non diagnostiques</b> : ROI et base de référence différentes du rachis AP / hanche dédiés,
+          et le bassin n'est pas un site diagnostique reconnu.</p></div></div></section>'''
 
 
 def _trends_section(A):
