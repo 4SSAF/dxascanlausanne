@@ -36,30 +36,49 @@ def metabolism(snap, weight_kg):
     return {"ffm_kg": round(ffm, 1), "bmr": bmr, "weight_kg": weight_kg}
 
 
-def nutrition(bmr, weight_kg, ffm_kg=None, activity_key=None, goal_key=None, meals=None):
-    """Besoins caloriques + macros + répartition par repas (valeurs par défaut)."""
+def nutrition(bmr, weight_kg, ffm_kg=None, activity_key=None, goal_key=None,
+              meals=None, training_key=None, ov=None):
+    """Besoins caloriques + macros + répartition par repas.
+
+    - lipides = % des kcal selon la pratique sportive (30–40 %) ;
+    - glucides = reste des kcal ;
+    - `ov` = surcharges manuelles {protein, carbs, fat} (g) forcées par le coach.
+    """
+    ov = ov or {}
     act = dict((k, v) for k, _, v in R.ACTIVITY)[activity_key or R.ACTIVITY_DEFAULT]
     gadj = dict((k, v) for k, _, v in R.GOALS)[goal_key or R.GOAL_DEFAULT]
     goal_key = goal_key or R.GOAL_DEFAULT
+    training_key = training_key or R.TRAINING_DEFAULT
+    fat_pct = dict((k, v) for k, _, v in R.TRAINING)[training_key]
     meals = meals or R.MEALS_DEFAULT
     tdee = round(bmr * act)
-    kcal = round(tdee * (1 + gadj))
-    # protéines : base FFM (masse maigre) ou poids total selon la config
+    kcal_target = round(tdee * (1 + gadj))
+
+    # protéines (base FFM ou poids), sauf surcharge
     if R.PROTEIN_BASIS == "ffm" and ffm_kg:
         p_per_kg = R.PROTEIN_G_PER_KG_FFM[goal_key]
         protein = round(ffm_kg * p_per_kg)
     else:
         p_per_kg = R.PROTEIN_G_PER_KG_BW[goal_key]
         protein = round(weight_kg * p_per_kg)
-    fat = round(weight_kg * R.FAT_G_PER_KG)
-    kcal_pf = protein * R.KCAL["prot"] + fat * R.KCAL["fat"]
-    carbs = max(0, round((kcal - kcal_pf) / R.KCAL["carb"]))
+    if ov.get("protein"):
+        protein = ov["protein"]
+    # lipides = % des kcal cible, sauf surcharge
+    fat = ov["fat"] if ov.get("fat") else round(kcal_target * fat_pct / 100.0 / R.KCAL["fat"])
+    # glucides = reste, sauf surcharge
+    if ov.get("carbs"):
+        carbs = ov["carbs"]
+    else:
+        carbs = max(0, round((kcal_target - protein * R.KCAL["prot"] - fat * R.KCAL["fat"]) / R.KCAL["carb"]))
+
+    kcal = protein * R.KCAL["prot"] + carbs * R.KCAL["carb"] + fat * R.KCAL["fat"]
     per_meal_p = round(protein / meals)
     mps_min = round(weight_kg * R.PROTEIN_PER_MEAL_G_PER_KG)
     return {
         "activity": activity_key or R.ACTIVITY_DEFAULT, "goal": goal_key, "meals": meals,
-        "tdee": tdee, "kcal": kcal, "protein": protein, "carbs": carbs, "fat": fat,
-        "p_per_kg": p_per_kg,
+        "training": training_key, "fat_pct_target": fat_pct,
+        "tdee": tdee, "kcal_target": kcal_target, "kcal": kcal,
+        "protein": protein, "carbs": carbs, "fat": fat, "p_per_kg": p_per_kg,
         "kcal_p": protein * 4, "kcal_c": carbs * 4, "kcal_f": fat * 9,
         "per_meal_p": per_meal_p, "mps_min": mps_min,
         "per_meal_kcal": round(kcal / meals),

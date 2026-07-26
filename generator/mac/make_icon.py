@@ -44,15 +44,12 @@ def build():
     icon = Image.alpha_composite(icon, Image.composite(sheen, Image.new("RGBA", (S, S), (0, 0, 0, 0)), mask))
 
     dr = ImageDraw.Draw(icon)
-    fM = font(int(S * 0.56))
-    b = dr.textbbox((0, 0), "M", font=fM)
-    dr.text(((S - (b[2] - b[0])) / 2 - b[0], (S - (b[3] - b[1])) / 2 - b[1] - int(S * 0.06)),
-            "M", font=fM, fill=(255, 255, 255, 255))
-    dr.rounded_rectangle([int(S * 0.30), int(S * 0.70), int(S * 0.70), int(S * 0.735)],
+    fM = font(int(S * 0.30))
+    b = dr.textbbox((0, 0), "DXA", font=fM)
+    dr.text(((S - (b[2] - b[0])) / 2 - b[0], (S - (b[3] - b[1])) / 2 - b[1] - int(S * 0.05)),
+            "DXA", font=fM, fill=(255, 255, 255, 255))
+    dr.rounded_rectangle([int(S * 0.32), int(S * 0.66), int(S * 0.68), int(S * 0.695)],
                          radius=int(S * 0.02), fill=(255, 255, 255, 235))
-    fc = font(int(S * 0.085))
-    cb = dr.textbbox((0, 0), "DXA", font=fc)
-    dr.text(((S - (cb[2] - cb[0])) / 2 - cb[0], int(S * 0.76)), "DXA", font=fc, fill=(255, 255, 255, 210))
 
     out = os.path.join(HERE, "AppIcon.icns")
     icon.save(out)

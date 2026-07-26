@@ -1,6 +1,6 @@
 #!/bin/bash
 # =====================================================================
-#  Rapport DXA 2.0 — Motion LAB
+#  Rapport DXA 2.0
 #  Double-cliquez ce fichier : choisissez un PDF Hologic, le rapport
 #  s'ouvre tout seul dans votre navigateur. S'installe seul au 1er lancement.
 # =====================================================================
@@ -13,7 +13,7 @@ notify()  { osascript -e "display notification \"$1\" with title \"Rapport DXA 2
 alertbox(){ osascript -e "display dialog \"$1\" with title \"Rapport DXA 2.0\" buttons {\"OK\"} default button 1" >/dev/null 2>&1 || true; }
 
 echo "──────────────────────────────────────────"
-echo "  Rapport DXA 2.0 — Motion LAB"
+echo "  Rapport DXA 2.0"
 echo "──────────────────────────────────────────"
 
 # 1) Python 3 présent ?

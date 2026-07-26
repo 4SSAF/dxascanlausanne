@@ -1,4 +1,4 @@
-# Générateur de Rapport DXA 2.0 — Motion LAB
+# Générateur de Rapport DXA 2.0
 
 Transforme un **export PDF Hologic APEX** (scanner Horizon Wi) en un **Rapport 2.0**
 HTML : âge biologique, comparaisons aux populations de référence, jauges lisibles,
@@ -64,12 +64,18 @@ PDF**) qui permet, par client, de :
   formules basées sur le poids.
 - **DEJ (TDEE)** = BMR × facteur d'activité (PAL).
 - **Cible calorique** selon l'objectif (déficit −20 % / maintien / surplus +10 %).
-- **Macros** : protéines 1,8–2,2 g/kg (Morton 2018 ; Helms 2014 en déficit),
-  lipides 0,9 g/kg, glucides = reste des calories.
+- **Protéines** basées sur la masse maigre (FFM) : déficit 2,6 / maintien 2,2 /
+  surplus 2,2 g/kg FFM (Morton 2018 ; Helms 2014).
+- **Ratio lipides/glucides selon la pratique sportive** : lipides = 30–40 % des
+  kcal (cardio → 30 %, mixte → 35 %, musculation → 40 %), glucides = le reste.
 - **Répartition par repas** avec contrôle du seuil de synthèse protéique
   ~0,4 g/kg/prise (Moore 2015 ; Schoenfeld & Aragon 2018).
+- **Forçage manuel** des grammes de macros (P/G/L) dans le panneau coach : si
+  renseignés, ils priment sur le calcul ; les autres macros s'ajustent.
 
-Tous ces paramètres sont **calibrables** dans `dxa2/references.py`.
+Tous ces paramètres sont **calibrables** dans `dxa2/references.py`. La marque
+(nom du centre, logo, pied de page) est neutre par défaut et se personnalise via
+les constantes `CLINIC_*` / `SHOW_LOGO` du même fichier.
 
 ## Export PDF
 

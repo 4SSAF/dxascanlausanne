@@ -126,5 +126,28 @@ PROJ_LEAN_GAIN_KG_PER_MONTH = 0.3    # gain de masse maigre/mois (entraîné, su
 
 
 # Version du moteur (affichée en pied de rapport pour vérifier les mises à jour)
-VERSION = "2.8"
+VERSION = "2.9"
 VERSION_DATE = "2026-07"
+
+
+# ---------------------------------------------------------------------------
+# Ratio lipides/glucides selon la pratique sportive
+# Les lipides sont exprimés en % des calories journalières (fourchette 30–40 %).
+# Cardio ++ -> moins de lipides / plus de glucides ; musculation -> l'inverse.
+# ---------------------------------------------------------------------------
+TRAINING = [
+    ("cardio", "Endurance / beaucoup de cardio", 30),
+    ("mixte", "Mixte cardio + musculation", 35),
+    ("muscu", "Musculation / force", 40),
+]
+TRAINING_DEFAULT = "mixte"
+FAT_PCT_MIN, FAT_PCT_MAX = 30, 40   # garde-fous (% des kcal)
+
+# ---------------------------------------------------------------------------
+# Identité / marque (laisser neutre par défaut ; à personnaliser ici)
+# ---------------------------------------------------------------------------
+DOC_TITLE = "Bilan Corporel DXA"
+CLINIC_NAME = ""                                   # nom du centre (vide = neutre)
+CLINIC_TAGLINE = "Analyse de composition corporelle"
+CLINIC_FOOTER = ""                                 # ligne contact/adresse en pied (vide = rien)
+SHOW_LOGO = False                                  # afficher un logo embarqué (logo.b64)

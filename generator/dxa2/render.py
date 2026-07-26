@@ -113,14 +113,15 @@ def _line_svg(points, color, label):
 
 # --- sections -----------------------------------------------------------------
 def _header(A, subtitle):
-    d = A["demo"]
-    logo = _logo_uri()
-    mark = (f'<img class="mark-img" src="{logo}" alt="Motion LAB">' if logo
-            else '<div class="mark">M</div>')
+    name = R.CLINIC_NAME or R.DOC_TITLE
+    if R.SHOW_LOGO and _logo_uri():
+        mark = f'<img class="mark-img" src="{_logo_uri()}" alt="">'
+    else:
+        mark = '<div class="mark" style="font-size:12px;letter-spacing:.02em">DXA</div>'
     return f'''<header class="topbar">
     <div class="brand">{mark}
-      <div><div class="name">Motion LAB</div>
-        <div class="sub">Analyse de composition corporelle · Lausanne</div></div></div>
+      <div><div class="name">{esc(name)}</div>
+        <div class="sub">{esc(R.CLINIC_TAGLINE)}</div></div></div>
     <div class="doc-tag"><span class="pill tag">◆ Rapport&nbsp;2.0</span>
       <div style="margin-top:8px;font-size:11px;color:var(--muted);font-family:var(--font-mono)">
         {subtitle}</div></div>
@@ -501,6 +502,11 @@ def _method(A):
         <h4>Sources des populations de référence</h4>
         <p>Natif Hologic : NHANES/BMDCS 2012 ({refs_sex}). Enrichi : Pratt 2025 (valeurs DXA par âge),
           Meredith-Jones 2021 (seuils TAV), Radecka 2025 / Yamada 2021 (ALMI), Hew-Butler 2025 (% masse grasse athlète).</p>
+        <h4>Sources — besoins nutritionnels</h4>
+        <p><b>BMR</b> Cunningham 1991 (500 + 22·masse maigre). <b>DEJ</b> = BMR × facteur d'activité (PAL, Harris-Benedict).
+          <b>Calories</b> déficit −20 % / surplus +10 %. <b>Protéines</b> Morton 2018 (1,6–2,2 g/kg) ; Helms 2014
+          (2,3–3,1 g/kg de masse maigre en sèche). <b>Lipides</b> 30–40 % des kcal selon la pratique (min hormonal ~0,6 g/kg).
+          <b>Répartition/repas</b> ~0,4 g protéines/kg/prise (Moore 2015 ; Schoenfeld &amp; Aragon 2018). Énergie 4/4/9 (Atwater).</p>
       </div>
       <div class="card method"><h4 style="margin-top:0">Références scientifiques</h4>
         <ol class="refs">
@@ -514,8 +520,8 @@ def _method(A):
     <p class="disclaimer"><b>Avertissement.</b> L'« âge biologique DXA » est un indice pédagogique dérivé des mesures de
       composition corporelle et de populations de référence publiées ; ce n'est pas un diagnostic médical ni un biomarqueur
       validé cliniquement. Les images DXA ne sont pas destinées à un usage diagnostique. Toute interprétation clinique relève
-      d'un professionnel de santé. Données : export Hologic Horizon Wi / APEX (Motion LAB, Lausanne). Rapport généré automatiquement.</p>
-    <div class="foot"><span>Motion LAB · Chemin du Petit-Flon 29 · 1052 Le Mont-sur-Lausanne · 021 512 40 00</span>
+      d'un professionnel de santé. Données : export Hologic Horizon Wi / APEX. Rapport généré automatiquement.</p>
+    <div class="foot"><span>{esc(R.CLINIC_FOOTER)}</span>
       <span>Rapport 2.0 · moteur v{R.VERSION} ({R.VERSION_DATE})</span></div></section>'''
 
 
@@ -541,14 +547,22 @@ def _coach_panel(A):
                        for k, lab, _ in R.ACTIVITY)
         goals = "".join(f'<option value="{k}"{" selected" if k == R.GOAL_DEFAULT else ""}>{esc(lab)}</option>'
                         for k, lab, _ in R.GOALS)
+        trainings = "".join(f'<option value="{k}"{" selected" if k == R.TRAINING_DEFAULT else ""}>{esc(lab)} ({pct}% lip.)</option>'
+                            for k, lab, pct in R.TRAINING)
         nut_controls = f'''
       <div class="cp-group"><label>Objectif</label>
         <select class="cp-select" id="nut-goal">{goals}</select></div>
       <div class="cp-group"><label>Niveau d'activité</label>
         <select class="cp-select" id="nut-activity">{acts}</select></div>
+      <div class="cp-group"><label>Pratique sportive (ratio lip./gluc.)</label>
+        <select class="cp-select" id="nut-training">{trainings}</select></div>
       <div class="cp-group"><label>Repas / jour</label>
         <select class="cp-select" id="nut-meals"><option value="3">3 repas</option>
-          <option value="4" selected>4 repas</option><option value="5">5 repas</option></select></div>'''
+          <option value="4" selected>4 repas</option><option value="5">5 repas</option></select></div>
+      <div class="cp-group"><label>Forcer macros (g) — vide = auto</label>
+        <div class="dxin"><input class="ov-in" type="number" min="0" step="1" id="ov-prot" placeholder="P">
+          <input class="ov-in" type="number" min="0" step="1" id="ov-carb" placeholder="G">
+          <input class="ov-in" type="number" min="0" step="1" id="ov-fat" placeholder="L"></div></div>'''
     proj_controls = ""
     if has_proj:
         proj_controls = '''
@@ -637,6 +651,7 @@ def _nutrition(A):
         <div class="mk"><span class="msw" style="background:var(--metab)"></span>Glucides <b id="pct-carb"></b></div>
         <div class="mk"><span class="msw" style="background:var(--warn)"></span>Lipides <b id="pct-fat"></b></div>
       </div>
+      <p id="fat-note" style="font-size:11.5px;color:var(--muted);margin-top:10px;font-family:var(--font-mono)"></p>
     </div></section>'''
 
 
@@ -745,7 +760,8 @@ def _script(A):
             "goalLab": {k: lab for k, lab, _ in R.GOALS},
             "proteinBasis": R.PROTEIN_BASIS,
             "protFFM": R.PROTEIN_G_PER_KG_FFM, "protBW": R.PROTEIN_G_PER_KG_BW,
-            "fatPerKg": R.FAT_G_PER_KG, "mpsPerKg": R.PROTEIN_PER_MEAL_G_PER_KG,
+            "mpsPerKg": R.PROTEIN_PER_MEAL_G_PER_KG,
+            "trainingFat": {k: v for k, _, v in R.TRAINING},
         })
     return f'''<script>
 const CFG = {_json.dumps(cfg)};
@@ -760,28 +776,32 @@ function renumber(){{
   }}
 }}
 
+function _ovVal(id){{ const el=$(id); if(!el) return NaN; const v=parseFloat(el.value); return (!isNaN(v)&&v>0)?v:NaN; }}
 function computeNutrition(){{
   if(!$('nut-goal')) return;
   const goal = $('nut-goal').value, act = $('nut-activity').value, meals = +$('nut-meals').value;
+  const training = $('nut-training') ? $('nut-training').value : 'mixte';
   const tdee = Math.round(CFG.bmr * CFG.activity[act]);
-  const kcal = Math.round(tdee * (1 + CFG.goalAdj[goal]));
+  const kcalTarget = Math.round(tdee * (1 + CFG.goalAdj[goal]));
   const useFFM = (CFG.proteinBasis === 'ffm' && CFG.ffm);
-  const pPerKg = useFFM ? CFG.protFFM[goal] : CFG.protBW[goal];
-  const protein = Math.round((useFFM ? CFG.ffm : CFG.weight) * pPerKg);
-  const fat = Math.round(CFG.weight * CFG.fatPerKg);
-  const kcalPF = protein*4 + fat*9;
-  const carbs = Math.max(0, Math.round((kcal - kcalPF)/4));
-  const kp = protein*4, kc = carbs*4, kf = fat*9, tot = Math.max(1, kp+kc+kf);
-  // métabolisme
+  const base = useFFM ? CFG.ffm : CFG.weight;
+  // surcharges manuelles (grammes forcés) sinon calcul
+  const ovP=_ovVal('ov-prot'), ovC=_ovVal('ov-carb'), ovF=_ovVal('ov-fat');
+  const protein = !isNaN(ovP) ? Math.round(ovP) : Math.round(base * (useFFM?CFG.protFFM[goal]:CFG.protBW[goal]));
+  const fatPct = CFG.trainingFat[training] || 35;
+  const fat = !isNaN(ovF) ? Math.round(ovF) : Math.round(kcalTarget * fatPct/100/9);
+  const carbs = !isNaN(ovC) ? Math.round(ovC) : Math.max(0, Math.round((kcalTarget - protein*4 - fat*9)/4));
+  const kp = protein*4, kc = carbs*4, kf = fat*9, kcal = kp+kc+kf, tot = Math.max(1, kcal);
+  const forced = (!isNaN(ovP)||!isNaN(ovC)||!isNaN(ovF));
   if($('tdee')) $('tdee').textContent = tdee;
   if($('tdee-sub')) $('tdee-sub').textContent = 'BMR × activité (' + CFG.activityLab[act].split(' ')[0].toLowerCase() + ')';
-  // nutrition
   if($('kcal-target')){{
     $('kcal-target').textContent = kcal;
-    $('nut-goal-lab').textContent = '(' + CFG.goalLab[goal].split(' ')[0].toLowerCase() + ')';
+    $('nut-goal-lab').textContent = '(' + CFG.goalLab[goal].split(' ')[0].toLowerCase() + (forced?', forcé':'') + ')';
     const diff = kcal - tdee;
-    $('kcal-sub').textContent = diff===0 ? '= dépense énergétique' : (diff>0?'+':'') + diff + ' kcal vs dépense';
-    $('m-prot').textContent = protein; $('m-prot-kg').textContent = pPerKg.toString().replace('.',',');
+    $('kcal-sub').textContent = (diff===0?'= dépense énergétique':(diff>0?'+':'')+diff+' kcal vs dépense');
+    const perKg = (protein/base);
+    $('m-prot').textContent = protein; $('m-prot-kg').textContent = perKg.toFixed(1).replace('.',',');
     $('m-prot-kcal').textContent = kp;
     $('m-carb').textContent = carbs; $('m-carb-kcal').textContent = kc;
     $('m-fat').textContent = fat; $('m-fat-kcal').textContent = kf;
@@ -791,8 +811,12 @@ function computeNutrition(){{
       '<div class="mseg" style="width:'+pc+'%;background:var(--metab)">G '+pc+'%</div>'+
       '<div class="mseg" style="width:'+pf+'%;background:var(--warn)">L '+pf+'%</div>';
     $('pct-prot').textContent = protein+' g'; $('pct-carb').textContent = carbs+' g'; $('pct-fat').textContent = fat+' g';
+    if($('fat-note')){{
+      const out = pf<30 || pf>40;
+      $('fat-note').textContent = 'Lipides ≈ '+pf+' % des kcal' + (out ? ' — hors fourchette 30–40 % (surcharge)' : ' (cible '+fatPct+' % · '+training+')');
+      $('fat-note').style.color = out ? 'var(--warn)' : 'var(--muted)';
+    }}
   }}
-  // repas
   if($('meals-container')){{
     const perK = Math.round(kcal/meals), perP = Math.round(protein/meals);
     const mpsMin = Math.round(CFG.weight * CFG.mpsPerKg);
@@ -900,8 +924,11 @@ function bindToggles(){{
       renumber();
     }});
   }});
-  ['nut-goal','nut-activity','nut-meals'].forEach(id => {{
+  ['nut-goal','nut-activity','nut-meals','nut-training'].forEach(id => {{
     const el = $(id); if(el) el.addEventListener('change', computeNutrition);
+  }});
+  ['ov-prot','ov-carb','ov-fat'].forEach(id => {{
+    const el = $(id); if(el) el.addEventListener('input', computeNutrition);
   }});
   ['proj-bf','proj-lean'].forEach(id => {{
     const el = $(id); if(el) el.addEventListener('input', computeProjector);

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Générateur de Rapport DXA 2.0 (Motion LAB).
+Générateur de Rapport DXA 2.0.
 
 Usage :
     python generate.py entree.pdf                 # -> entree.rapport2.html
