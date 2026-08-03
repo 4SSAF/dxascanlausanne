@@ -60,27 +60,46 @@ def _zones_html(zones):
 
 
 def _meter(name, sub, read, meter, legend_html="", metric=None):
-    ref = ""
+    """Jauge « double référence » (variante lanes) : piste population (zones +
+    médiane), piste sport optionnelle (bande 25–75e + médiane), repère VOUS."""
+    en = _LANG == "en"
+    pop_med = ""
     if meter.get("ref") is not None:
-        ref = f'<span class="mkref" style="left:{meter["ref"]:.1f}%"></span>'
-    mk = ""
-    if meter.get("marker") is not None:
-        mk = f'<span class="mk" style="left:{meter["marker"]:.1f}%"></span>'
-    # emplacements pour la superposition « sport » (positionnés en JS)
-    sport_ov = sport_cap = ""
-    if metric:
-        sport_ov = (f'<span class="sport-band" id="sb-{metric}" hidden></span>'
-                    f'<span class="sport-mk" id="sm-{metric}" hidden></span>')
-        sport_cap = f'<div class="sport-cap" id="sc-{metric}" hidden></div>'
+        pop_med = f'<span class="pop-med" style="left:{meter["ref"]:.1f}%"></span>'
+    you = meter.get("marker")
+    val = meter.get("value")
+    dec = 2 if metric == "almi" else 1
+    youval = fr(val, dec) if val is not None else "—"
+    you_word = "YOU" if en else "VOUS"
+    you_mk = ""
+    if you is not None:
+        you_mk = (f'<span class="you-mk" style="left:{you:.1f}%"></span>'
+                  f'<span class="you-tag" style="left:{you:.1f}%"><b>{you_word}</b><span>{youval}</span></span>')
     labels = "".join(f"<span>{esc(l)}</span>" for l in meter["labels"])
+    pop_lbl = "General population" if en else "Population générale"
+    if metric:
+        gclass, gid = "gauge g2", f' id="gauge-{metric}"'
+        sportlane = (f'<div class="sportlane" id="sl-{metric}">'
+                     f'<div class="lane"><span class="sport-band" id="sb-{metric}"></span>'
+                     f'<span class="sport-mk" id="sm-{metric}"></span></div>'
+                     f'<div class="lane-lbl sport-lbl" id="sc-{metric}"></div></div>')
+    else:
+        gclass, gid, sportlane = "gauge g1", "", ""
+    # légende
+    leg = (f'<span class="gl-you"><i></i>{"You" if en else "Vous"} — {youval}</span>'
+           f'<span class="gl-med"><i></i>{"Population median" if en else "Médiane population"}</span>')
+    if metric:
+        leg += f'<span class="gl-sport"><i></i>{"sport (25–75th)" if en else "sport (25–75e)"}</span>'
     return f'''<div class="metric">
-      <div class="row"><span class="name">{name} <small>{sub}</small></span>
-        <span class="read">{read}</span></div>
-      <div class="meter"><div class="track"><div class="zones">{_zones_html(meter["zones"])}</div>
-        {ref}{mk}{sport_ov}</div>
+      <div class="gauge-head"><div class="gh-l"><span class="gh-label">{name} <small>{sub}</small></span></div>
+        <span class="gh-read">{read}</span></div>
+      <div class="{gclass}"{gid}>
+        <div class="lane"><div class="zones">{_zones_html(meter["zones"])}</div>{pop_med}</div>
+        <div class="lane-lbl">{pop_lbl}</div>
+        {sportlane}{you_mk}
         <div class="scale">{labels}</div>
-        {sport_cap}
-      </div>{legend_html}
+      </div>
+      <div class="gauge-legend">{leg}</div>
     </div>'''
 
 
@@ -134,7 +153,7 @@ def _header(A, subtitle):
     if R.SHOW_LOGO and _logo_uri():
         mark = f'<img class="mark-img" src="{_logo_uri()}" alt="">'
     else:
-        mark = '<div class="mark" style="font-size:12px;letter-spacing:.02em">DXA</div>'
+        mark = '<span class="mark"></span>'
     return f'''<header class="topbar">
     <div class="brand">{mark}
       <div><div class="name">{esc(name)}</div>
@@ -207,7 +226,7 @@ def _hero(A):
 
     def sub(lbl, small, age, color):
         w = max(4, min(96, (age - 18) / 22 * 100))
-        return f'''<div class="subage">
+        return f'''<div class="subage" style="--sc:{color}">
           <div class="lbl">{lbl}<small>{small}</small></div>
           <div class="track"><span class="fill" style="width:{w:.0f}%;background:{color}"></span></div>
           <div class="val" style="color:{color}">≈ {age}</div></div>'''
@@ -285,7 +304,7 @@ def _scorecards(A):
 
 
 def _scard(ic, color, title, big, cap, st, pid=None):
-    return f'''<div class="scard"><div class="top">
+    return f'''<div class="scard" style="--kc:{color}"><div class="top">
       <div class="ic" style="background:{color}">{ic}</div><h4>{title}</h4></div>
       <div class="big">{big}</div><div class="cap">{cap}</div>{_status_pill(st, pid)}</div>'''
 
@@ -1170,19 +1189,19 @@ function computeSport(){{
   const s = key ? CFG.sports[key] : null;
   const units = {{bf:'%', ffmi:' kg/m²', almi:' kg/m²'}};
   for(const m of ['bf','ffmi','almi']){{
-    const band=$('sb-'+m), mk=$('sm-'+m), cap=$('sc-'+m);
-    if(!band||!mk) continue;
-    if(!s || !CFG.sportScales || !CFG.sportScales[m]){{ band.hidden=true; mk.hidden=true; if(cap) cap.hidden=true; continue; }}
+    const g=$('gauge-'+m), band=$('sb-'+m), mk=$('sm-'+m), lbl=$('sc-'+m);
+    if(!g||!band||!mk) continue;
+    if(!s || !CFG.sportScales || !CFG.sportScales[m]){{ g.classList.remove('has-sport'); continue; }}
     const sc=CFG.sportScales[m], v=s[m];
     const pLo=scalePos(v[0],sc[0],sc[1]), pHi=scalePos(v[2],sc[0],sc[1]), pMed=scalePos(v[1],sc[0],sc[1]);
-    band.style.left=pLo+'%'; band.style.width=Math.max(0,pHi-pLo)+'%'; band.hidden=false;
-    mk.style.left=pMed+'%'; mk.hidden=false;
-    if(cap){{
+    band.style.left=pLo+'%'; band.style.width=Math.max(0,pHi-pLo)+'%';
+    mk.style.left=pMed+'%';
+    if(lbl){{
       const dec=(m==='bf')?0:1;
-      cap.innerHTML='<span class="sport-sw"></span>'+s.label+' — '+(EN?'median ':'médiane ')+nf(v[1],dec)+units[m]+
-        ' <span style="opacity:.72">('+(EN?'band = 25–75th pct, competitive':'bande = 25–75e pct, compétitif')+')</span>';
-      cap.hidden=false;
+      lbl.textContent=s.label+' · '+(EN?'median ':'médiane ')+nf(v[1],dec)+units[m]+
+        (EN?' (25–75th pct, competitive)':' (25–75e pct, compétitif)');
     }}
+    g.classList.add('has-sport');
   }}
   const bn=$('sport-bone-note');
   if(bn){{
