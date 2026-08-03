@@ -1,0 +1,12 @@
+# Ne JAMAIS versionner de données patient ni d'artefacts générés
+_out/
+*.pdf
+*.png
+*.rapport2.html
+__pycache__/
+*.pyc
+_shot.cjs
+_css.html
+.DS_Store
+_*.cjs
+clients.json

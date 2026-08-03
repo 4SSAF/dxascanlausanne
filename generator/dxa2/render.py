@@ -1,0 +1,1342 @@
+"""
+Rendu HTML du Rapport 2.0 à partir des données analysées.
+Auto-suffisant (CSS embarqué, images en data-URI), thème clair/sombre, imprimable.
+"""
+from __future__ import annotations
+import os
+import html as _html
+import json as _json
+
+from . import references as R
+from . import i18n
+
+_ZONE_BG = {"risk": "var(--risk-bg)", "warn": "var(--warn-bg)",
+            "good": "var(--good-bg)", "brand": "var(--brand-bg)"}
+_STYLE = os.path.join(os.path.dirname(__file__), "style.css")
+_LOGO_FILE = os.path.join(os.path.dirname(__file__), "logo.b64")
+
+
+def _logo_uri():
+    try:
+        with open(_LOGO_FILE, encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+_MOIS = ["", "janvier", "février", "mars", "avril", "mai", "juin", "juillet",
+         "août", "septembre", "octobre", "novembre", "décembre"]
+
+# Langue courante du rendu (fixée par render()) — pilote le séparateur décimal.
+_LANG = "fr"
+
+
+def _t(A, fr_txt, en_txt):
+    """Bilingue au niveau source, pour les prose à balises/valeurs internes que la
+    passe de traduction du dictionnaire ne peut pas matcher proprement."""
+    return en_txt if (A or {}).get("lang") == "en" else fr_txt
+
+
+def fr(x, dec=1):
+    """Nombre formaté selon la langue courante (virgule en FR, point en EN)."""
+    if x is None:
+        return "—"
+    s = f"{x:.{dec}f}" if dec else f"{x:.0f}"
+    return s if _LANG == "en" else s.replace(".", ",")
+
+
+def _date_fr(d):
+    return f"{d.day:02d}.{d.month:02d}.{d.year}" if d else "—"
+
+
+def esc(s):
+    return _html.escape(str(s)) if s is not None else ""
+
+
+# --- composants ---------------------------------------------------------------
+def _zones_html(zones):
+    return "".join(
+        f'<div class="z" style="width:{w:.2f}%;background:{_ZONE_BG.get(tok, "var(--inset)")}"></div>'
+        for (w, tok) in zones)
+
+
+def _meter(name, sub, read, meter, legend_html="", metric=None):
+    """Jauge « double référence » (variante lanes) : piste population (zones +
+    médiane), piste sport optionnelle (bande 25–75e + médiane), repère VOUS."""
+    en = _LANG == "en"
+    pop_med = ""
+    if meter.get("ref") is not None:
+        pop_med = f'<span class="pop-med" style="left:{meter["ref"]:.1f}%"></span>'
+    you = meter.get("marker")
+    val = meter.get("value")
+    dec = 2 if metric == "almi" else 1
+    youval = fr(val, dec) if val is not None else "—"
+    you_word = "YOU" if en else "VOUS"
+    you_mk = ""
+    if you is not None:
+        you_mk = (f'<span class="you-mk" style="left:{you:.1f}%"></span>'
+                  f'<span class="you-tag" style="left:{you:.1f}%"><b>{you_word}</b><span>{youval}</span></span>')
+    labels = "".join(f"<span>{esc(l)}</span>" for l in meter["labels"])
+    pop_lbl = "General population" if en else "Population générale"
+    if metric:
+        gclass, gid = "gauge g2", f' id="gauge-{metric}"'
+        sportlane = (f'<div class="sportlane" id="sl-{metric}">'
+                     f'<div class="lane"><span class="sport-band" id="sb-{metric}"></span>'
+                     f'<span class="sport-mk" id="sm-{metric}"></span></div>'
+                     f'<div class="lane-lbl sport-lbl" id="sc-{metric}"></div></div>')
+    else:
+        gclass, gid, sportlane = "gauge g1", "", ""
+    # légende
+    leg = (f'<span class="gl-you"><i></i>{"You" if en else "Vous"} — {youval}</span>'
+           f'<span class="gl-med"><i></i>{"Population median" if en else "Médiane population"}</span>')
+    if metric:
+        leg += f'<span class="gl-sport"><i></i>{"sport (25–75th)" if en else "sport (25–75e)"}</span>'
+    return f'''<div class="metric">
+      <div class="gauge-head"><div class="gh-l"><span class="gh-label">{name} <small>{sub}</small></span></div>
+        <span class="gh-read">{read}</span></div>
+      <div class="{gclass}"{gid}>
+        <div class="lane"><div class="zones">{_zones_html(meter["zones"])}</div>{pop_med}</div>
+        <div class="lane-lbl">{pop_lbl}</div>
+        {sportlane}{you_mk}
+        <div class="scale">{labels}</div>
+      </div>
+      <div class="gauge-legend">{leg}</div>
+    </div>'''
+
+
+def _rbar(label, pct, value, dim=False):
+    op = ";opacity:.72" if dim else ""
+    return (f'<div class="rbar"><span class="rl">{esc(label)}</span>'
+            f'<div class="rt"><span class="rf" style="width:{pct:.0f}%;background:var(--muscle){op}"></span></div>'
+            f'<span class="rv">{esc(value)}</span></div>')
+
+
+def _rbar_bone(label, pct, value):
+    # value peut contenir du HTML de confiance (delta) -> ne pas échapper
+    return (f'<div class="rbar"><span class="rl">{esc(label)}</span>'
+            f'<div class="rt"><span class="rf" style="width:{pct:.0f}%;background:var(--bone)"></span></div>'
+            f'<span class="rv">{value}</span></div>')
+
+
+def _line_svg(points, color, label):
+    """points: list of (x_label_date, value). Renvoie un SVG 260x120."""
+    if not points:
+        return ""
+    vals = [p["value"] for p in points]
+    vmin, vmax = min(vals), max(vals)
+    if vmax == vmin:
+        vmax += 1
+    pad = (vmax - vmin) * 0.15 or 1
+    lo, hi = vmin - pad, vmax + pad
+    n = len(points)
+    xs = [46 + (205 * i / (n - 1)) if n > 1 else 150 for i in range(n)]
+    ys = [100 - (p["value"] - lo) / (hi - lo) * 90 for p in points]
+    poly = " ".join(f"{x:.0f},{y:.0f}" for x, y in zip(xs, ys))
+    circles = ""
+    for i, (x, y, p) in enumerate(zip(xs, ys, points)):
+        r = 4 if i == n - 1 else 3
+        ring = ' stroke="var(--surface)" stroke-width="1.5"' if i == n - 1 else ""
+        circles += (f'<circle cx="{x:.0f}" cy="{y:.0f}" r="{r}" fill="{color}"{ring}>'
+                    f'<title>{_date_fr(p["date"])} — {fr(p["value"], 2)}</title></circle>')
+    return f'''<svg viewBox="0 0 260 120" role="img" aria-label="{esc(label)}">
+      <line x1="30" y1="10" x2="30" y2="100" stroke="var(--hairline-2)" stroke-width="1"/>
+      <line x1="30" y1="100" x2="252" y2="100" stroke="var(--hairline-2)" stroke-width="1"/>
+      <text x="4" y="16" class="num" font-size="8" fill="var(--muted)">{fr(hi, 2)}</text>
+      <text x="4" y="99" class="num" font-size="8" fill="var(--muted)">{fr(lo, 2)}</text>
+      <polyline fill="none" stroke="{color}" stroke-width="2.5" stroke-linejoin="round"
+        stroke-linecap="round" points="{poly}"/>{circles}
+    </svg>'''
+
+
+# --- sections -----------------------------------------------------------------
+def _header(A, subtitle):
+    name = R.CLINIC_NAME or R.DOC_TITLE
+    if R.SHOW_LOGO and _logo_uri():
+        mark = f'<img class="mark-img" src="{_logo_uri()}" alt="">'
+    else:
+        mark = '<span class="mark"></span>'
+    return f'''<header class="topbar">
+    <div class="brand">{mark}
+      <div><div class="name">{esc(name)}</div>
+        <div class="sub">{esc(R.CLINIC_TAGLINE)}</div></div></div>
+    <div class="doc-tag"><span class="pill tag">◆ Rapport&nbsp;2.0</span>
+      <div style="margin-top:8px;font-size:11px;color:var(--muted);font-family:var(--font-mono)">
+        {subtitle}</div></div>
+  </header>'''
+
+
+def _patient(A):
+    d = A["demo"]
+    sexsym = "♀" if d["sex"] == "F" else "♂"
+    suivi = (f'{A["n_exams"]} <small>scans</small>' if A["n_exams"] > 1
+             else '1<small>er scan · baseline</small>')
+    return f'''<div class="patient">
+    <div class="chip"><div class="k">Client</div><div class="v">{esc(d["name"])}</div></div>
+    <div class="chip"><div class="k">Âge civil</div><div class="v">{d["age"]} <small>ans · {sexsym}</small></div></div>
+    <div class="chip"><div class="k">Taille</div><div class="v">{fr(d["height_cm"],0)} <small>cm</small></div></div>
+    <div class="chip"><div class="k">Poids</div><div class="v">{fr(d["weight_kg"])} <small>kg</small></div></div>
+    <div class="chip"><div class="k">IMC</div><div class="v">{fr(A["bmi"])} <small>{_bmi_class(A["bmi"])}</small></div></div>
+    <div class="chip"><div class="k">Examen</div><div class="v">{_date_fr(A["latest_exam_date"])}</div></div>
+    <div class="chip"><div class="k">Suivi</div><div class="v">{suivi}</div></div>
+    <div class="chip"><div class="k">Appareil</div><div class="v">Horizon Wi</div></div>
+  </div>'''
+
+
+def _bmi_class(bmi):
+    if bmi is None:
+        return ""
+    if bmi < 18.5:
+        return "Maigreur"
+    if bmi < 25:
+        return "Normal"
+    if bmi < 30:
+        return "Surpoids"
+    return "Obésité"
+
+
+def _status_pill(st, pid=None):
+    tone, label = st
+    extra = ""
+    if pid:
+        # id + valeurs d'origine (population générale) pour restauration en JS
+        extra = f' id="{pid}" data-tone0="{tone}" data-label0="{esc(label)}"'
+    return f'<span class="status {tone}"{extra}><span class="d"></span>{label}</span>'
+
+
+def _hero(A):
+    b = A["bioage"]
+    d = A["demo"]
+    civil_pos = _apos(d["age"])
+    bio_pos = _apos(b["composite"])
+    delta = b["delta"]
+    en = d and A.get("lang") == "en"
+    if delta < 0:
+        yr = ("yr" if abs(delta) == 1 else "yrs") if en else ("an" if abs(delta) == 1 else "ans")
+        dtxt = (f'▼ {abs(delta)} {yr} younger than chronological age ({d["age"]})' if en
+                else f'▼ {abs(delta)} {yr} plus jeune que l\'âge civil ({d["age"]})')
+        dcls = "delta"
+    elif delta > 0:
+        yr = ("yr" if delta == 1 else "yrs") if en else ("an" if delta == 1 else "ans")
+        dtxt = (f'▲ {delta} {yr} above chronological age ({d["age"]})' if en
+                else f'▲ {delta} {yr} au-dessus de l\'âge civil ({d["age"]})')
+        dcls = "delta"
+    else:
+        dtxt = (f'≈ equal to chronological age ({d["age"]})' if en
+                else f'≈ égal à l\'âge civil ({d["age"]})')
+        dcls = "delta"
+
+    def sub(lbl, small, age, color):
+        w = max(4, min(96, (age - 18) / 22 * 100))
+        return f'''<div class="subage" style="--sc:{color}">
+          <div class="lbl">{lbl}<small>{small}</small></div>
+          <div class="track"><span class="fill" style="width:{w:.0f}%;background:{color}"></span></div>
+          <div class="val" style="color:{color}">≈ {age}</div></div>'''
+
+    refs = "féminines" if d["sex"] == "F" else "masculines"
+    refs_note = f"Références européennes {refs} (Hologic)."
+    yrs_u = "yrs<br>biological" if en else "ans<br>biologiques"
+    civil_lab = f"chrono {d['age']}" if en else f"civil {d['age']}"
+    bio_lab = f"bio {b['composite']}"
+    w = b['weights']
+    wtxt = f"{int(w['metabolic']*100)}/{int(w['muscle']*100)}/{int(w['bone']*100)}"
+    return f'''<section data-mod="bioage">
+    <div class="sec-head"><span class="idx">01</span><h2>Âge biologique &amp; score global</h2>
+      <span class="note">{refs_note}</span></div>
+    <div class="hero"><div class="hero-in">
+      <div class="hero-left">
+        <div class="eyebrow">{_t(A, "Âge biologique DXA — estimation", "DXA biological age — estimate")}</div>
+        <div class="bigage"><span class="n">{b["composite"]}</span><span class="u">{yrs_u}</span></div>
+        <span class="{dcls}">{dtxt}</span>
+        <div class="axis"><div class="bar">
+          <span class="tick" style="left:{civil_pos:.0f}%" title="{civil_lab}"></span>
+          <span class="lab" style="left:{civil_pos:.0f}%;color:var(--ink-2)">{civil_lab}</span>
+          <span class="tick you" style="left:{bio_pos:.0f}%" title="{bio_lab}"></span>
+          <span class="lab" style="left:{bio_pos:.0f}%;color:var(--brand);font-weight:700;top:-24px">{bio_lab}</span>
+        </div><div class="scaleline"><span>20</span><span>25</span><span>30</span><span>35</span><span>40</span></div></div>
+        <p style="font-size:13px;color:var(--ink-2);margin-top:16px;line-height:1.55">
+          {_t(A, "Composite de trois systèmes tissulaires —", "Composite of three tissue systems —")}
+          <b style="color:var(--bone)">{_t(A, "os", "bone")}</b>,
+          <b style="color:var(--muscle)">{_t(A, "muscle", "muscle")}</b>,
+          <b style="color:var(--metab)">{_t(A, "métabolisme", "metabolism")}</b>
+          {_t(A, "— chacun replacé sur la trajectoire d'âge d'une population de référence.",
+                 "— each placed on the age trajectory of a reference population.")}</p>
+      </div>
+      <div class="hero-right">
+        <div class="eyebrow" style="margin-bottom:14px">{_t(A, "Décomposition par système", "Breakdown by system")}</div>
+        <div class="subages">
+          {sub(_t(A,"Métabolique","Metabolic"), _t(A,"graisse viscérale","visceral fat"), b["metabolic"], "var(--metab)")}
+          {sub(_t(A,"Osseux","Bone"), _t(A,"densité minérale","mineral density"), b["bone"], "var(--bone)")}
+          {sub(_t(A,"Musculaire","Muscular"), _t(A,"masse maigre","lean mass"), b["muscle"], "var(--muscle)")}
+        </div>
+        <p style="font-size:11.5px;color:var(--muted);margin-top:16px;line-height:1.5;font-family:var(--font-mono)">
+          {_t(A, f"Échelle 20 → 40 ans. Indice éducatif pondéré ({wtxt}), dérivé des mesures DXA. Ne remplace pas un avis médical.",
+                 f"Scale 20 → 40 yrs. Weighted educational index ({wtxt}), derived from DXA measures. Not a substitute for medical advice.")}</p>
+      </div>
+    </div></div>
+    {_scorecards(A)}
+  </section>'''
+
+
+def _apos(age):
+    return max(2, min(98, (age - 20) / 20 * 100))
+
+
+def _scorecards(A):
+    s = A["snap"]; st = A["status"]
+    cards = []
+    if "vat" in st:
+        cards.append(_scard("VG", "var(--metab)", "Graisse viscérale",
+                            f'{fr(s.get("vat_mass_g"),0)} <span style="font-size:13px;color:var(--muted)">g</span>',
+                            f'{fr(s.get("vat_area_cm2"))} cm² · seuil ≈ {int(A["vat_mass_thr"])} g', st["vat"]))
+    if "muscle" in st:
+        cards.append(_scard("MM", "var(--muscle)", "Masse musculaire",
+                            f'{fr(s.get("almi"),2)} <span style="font-size:13px;color:var(--muted)">kg/m²</span>',
+                            "ALMI · appendiculaire", st["muscle"], pid="st-muscle"))
+    if "bone" in st:
+        basis = A.get("bmd_basis", "T")
+        val = s.get("bmd_z") if basis == "Z" else s.get("bmd_t")
+        cards.append(_scard("OS", "var(--bone)", "Densité osseuse",
+                            f'{fr(val, 1)} <span style="font-size:13px;color:var(--muted)">{basis}</span>',
+                            f'corps entier · non diagnostique', st["bone"]))
+    if "bf" in st:
+        cards.append(_scard("%G", "var(--brand)", "Masse grasse",
+                            f'{fr(s.get("bf_pct"))} <span style="font-size:13px;color:var(--muted)">%</span>',
+                            f'{fr(s.get("fat_g",0)/1000 if s.get("fat_g") else None)} kg', st["bf"], pid="st-bf"))
+    return f'<div class="score">{"".join(cards)}</div>'
+
+
+def _scard(ic, color, title, big, cap, st, pid=None):
+    return f'''<div class="scard" style="--kc:{color}"><div class="top">
+      <div class="ic" style="background:{color}">{ic}</div><h4>{title}</h4></div>
+      <div class="big">{big}</div><div class="cap">{cap}</div>{_status_pill(st, pid)}</div>'''
+
+
+def _composition(A, img_skeletal, img_thermal):
+    m = A.get("mass")
+    if not m:
+        return ""
+    imgs = ""
+    if img_skeletal or img_thermal:
+        figs = ""
+        if img_skeletal:
+            figs += f'<figure class="scan-fig"><img src="{img_skeletal}" alt="{_t(A,"Squelette DXA","DXA skeleton")}"><figcaption>Carte osseuse</figcaption></figure>'
+        if img_thermal:
+            figs += f'<figure class="scan-fig"><img src="{img_thermal}" alt="{_t(A,"Composition DXA","DXA composition")}"><figcaption>Graisse / maigre / os</figcaption></figure>'
+        imgs = f'''<div class="card">
+          <div class="eyebrow" style="margin-bottom:12px">Imagerie DXA — corps entier ({_date_fr(A["latest_exam_date"])})</div>
+          <div class="scan-imgs">{figs}</div>
+          <p style="font-size:11px;color:var(--muted);text-align:center;margin-top:10px;font-family:var(--font-mono)">
+            Image non destinée à un usage diagnostique</p></div>'''
+
+    meters = _meter("FFMI", "masse maigre / taille²",
+                    f'{fr(A["ffmi"])} <small>kg/m²</small>', A["meters"]["ffmi"], metric="ffmi")
+    if A["meters"]["fmi"]["value"] is not None:
+        meters += _meter("FMI", "masse grasse / taille²",
+                         f'{fr(A["snap"].get("fmi"))} <small>kg/m²</small>', A["meters"]["fmi"])
+
+    grid_class = "g-scan" if imgs else "g-2"
+    return f'''<section>
+    <div class="sec-head"><span class="idx">02</span><h2>Composition en un coup d'œil</h2>
+      <span class="note">{fr(m["total_kg"])} kg en trois compartiments — bien au-delà de l'IMC.</span></div>
+    <div class="grid {grid_class}">{imgs}
+      <div class="card">
+        <div class="eyebrow" style="margin-bottom:12px">Masse totale — {fr(m["total_kg"])} kg</div>
+        <div class="massbar">
+          <div class="seg" style="width:{m["lean_pct"]:.1f}%;background:var(--muscle)">{_t(A,"Masse maigre","Lean")}&nbsp;·&nbsp;{fr(m["lean_kg"])}&nbsp;kg</div>
+          <div class="seg" style="width:{m["fat_pct"]:.1f}%;background:var(--metab)">{fr(m["fat_kg"])}</div>
+          <div class="seg" style="width:{m["bmc_pct"]:.1f}%;background:var(--bone)"></div></div>
+        <div class="masskey">
+          <div class="item"><span class="sw" style="background:var(--muscle)"></span><span class="t">{_t(A,"Masse maigre","Lean mass")} <b>{fr(m["lean_kg"])} kg</b> · {fr(m["lean_pct"])} %</span></div>
+          <div class="item"><span class="sw" style="background:var(--metab)"></span><span class="t">{_t(A,"Masse grasse","Fat mass")} <b>{fr(m["fat_kg"])} kg</b> · {fr(m["fat_pct"])} %</span></div>
+          <div class="item"><span class="sw" style="background:var(--bone)"></span><span class="t">{_t(A,"Os","Bone")} <b>{fr(m["bmc_kg"])} kg</b> · {fr(m["bmc_pct"])} %</span></div></div>
+        <div style="height:1px;background:var(--hairline);margin:18px 0"></div>
+        <div class="eyebrow" style="margin-bottom:10px">Indices normalisés (taille²)</div>
+        {meters}
+      </div></div></section>'''
+
+
+def _muscle(A):
+    mt = A["meters"]["almi"]
+    s = A["snap"]
+    legend = f'''<div class="legend">
+      <span><i style="background:var(--ink)"></i>Vous · {fr(s.get("almi"),2)}</span>
+      <span><i style="background:var(--ink-2)"></i>Médiane · {fr(mt.get("ref_val", None) if False else None)}</span></div>'''
+    # legend simple
+    legend = ('<div class="legend"><span><i style="background:var(--ink)"></i>Vous</span>'
+              '<span><i style="background:var(--ink-2)"></i>Médiane de référence</span></div>')
+    rl = s.get("regional_lean", {})
+    bars = ""
+    if rl:
+        mx = max([v for v in rl.values()] + [1])
+        asym = A.get("arm_asym")
+        order = [("bras_d", "Bras droit"), ("bras_g", "Bras gauche"),
+                 ("jambe_d", "Jambe droite"), ("jambe_g", "Jambe gauche"), ("tronc", "Tronc")]
+        for key, lbl in order:
+            if key in rl:
+                v = rl[key]
+                dim = bool(asym and asym["flag"] and key == ("bras_g" if asym["bigger"] == "droit" else "bras_d"))
+                bars += _rbar(lbl, v / mx * 100, f'{fr(v/1000,2)} kg', dim=dim)
+    note = ""
+    asym = A.get("arm_asym")
+    en = A.get("lang") == "en"
+    if asym and asym["flag"]:
+        bigger = asym["bigger"]
+        if en:
+            bigger_en = {"droit": "right", "gauche": "left"}.get(bigger, bigger)
+            note = (f'<div class="tag-note"><span>⚠</span><div><b>Arm asymmetry {fr(asym["pct"])} %</b> '
+                    f'({bigger_en} &gt; contralateral). Address it with unilateral work.</div></div>')
+        else:
+            note = (f'<div class="tag-note"><span>⚠</span><div><b>Asymétrie bras {fr(asym["pct"])} %</b> '
+                    f'({bigger} &gt; controlatéral). À corriger par du travail unilatéral.</div></div>')
+    elif asym:
+        note = _t(A,
+                  '<div class="tag-note good"><span>✓</span><div><b>Symétrie excellente</b> — '
+                  'écart bras &lt; 10 %. Le travail peut être bilatéral et global.</div></div>',
+                  '<div class="tag-note good"><span>✓</span><div><b>Excellent symmetry</b> — '
+                  'arm gap &lt; 10 %. Training can stay bilateral and global.</div></div>')
+    below = s.get("almi") and s["almi"] < R_median(A)
+    interp = _t(A,
+                "À la médiane de référence : marge de progression nette (sécurité, force, os)."
+                if below else "Au-dessus de la médiane — bon niveau musculaire à entretenir.",
+                "At the reference median: clear room to progress (safety, strength, bone)."
+                if below else "Above the median — good muscle level to maintain.")
+    return f'''<section>
+    <div class="sec-head"><span class="idx">03</span><h2 style="color:var(--muscle)">Muscle — masse maigre</h2>
+      <span class="note">Le compartiment le plus lié à la longévité fonctionnelle.</span></div>
+    <div class="grid g-2">
+      <div class="card"><div class="eyebrow" style="margin-bottom:14px">Position vs jeunes adultes (même sexe)</div>
+        {_meter("ALMI", "maigre appendiculaire / taille²", f'{fr(s.get("almi"),2)} <small>kg/m²</small>', mt, legend, metric="almi")}
+        <p style="font-size:13px;color:var(--ink-2);margin-top:14px;line-height:1.55">{interp}</p></div>
+      <div class="card"><div class="eyebrow" style="margin-bottom:14px">Masse maigre par région (kg)</div>
+        {bars}{note}</div></div></section>'''
+
+
+def R_median(A):
+    from . import references as R
+    return R.ANCHORS[A["demo"]["sex"]]["almi_median"]
+
+
+def _fat(A):
+    s = A["snap"]
+    ratio = A.get("vat_ref_txt", "")
+    thr_mass = int(A["vat_mass_thr"])
+    ag = s.get("ag_ratio")
+    tl = s.get("trunk_limb_mass")
+    return f'''<section>
+    <div class="sec-head"><span class="idx">04</span><h2 style="color:var(--metab)">Graisse &amp; risque cardiométabolique</h2>
+      <span class="note">Ce n'est pas la quantité de graisse qui compte, mais surtout sa localisation.</span></div>
+    <div class="grid g-2">
+      <div class="card"><div class="eyebrow" style="margin-bottom:14px">Masse grasse totale — plages de santé</div>
+        {_meter("% masse grasse", "", f'{fr(s.get("bf_pct"))} <small>%</small>', A["meters"]["bf"], metric="bf")}
+      </div>
+      <div class="card"><div class="eyebrow" style="margin-bottom:14px">Graisse viscérale (TAV) — le marqueur qui compte</div>
+        <div class="callout"><div class="cn">{fr(s.get("vat_mass_g"),0)}<small>{_t(A,"grammes de TAV","grams of VAT")}</small></div>
+          <div class="cc">{_t(A, f'Soit <b>{ratio} sous le seuil de risque</b> ({thr_mass} g). Surface estimée <b>{fr(s.get("vat_area_cm2"))} cm²</b>.',
+                               f'That is <b>{ratio} below the risk threshold</b> ({thr_mass} g). Estimated area <b>{fr(s.get("vat_area_cm2"))} cm²</b>.')}</div></div>
+        <div style="margin-top:18px">{_meter("TAV sur l'échelle de risque", "", f'{fr(s.get("vat_area_cm2"))} <small>cm²</small>', A["meters"]["vat_area"])}</div>
+        <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
+          <div style="flex:1;min-width:120px;background:var(--surface-2);border:1px solid var(--hairline);border-radius:9px;padding:11px">
+            <div class="eyebrow">Ratio A/G</div><div class="num" style="font-size:19px;font-weight:700;margin-top:3px">{fr(ag,2)}</div>
+            <div style="font-size:11px;color:var(--muted)">androïde/gynoïde</div></div>
+          <div style="flex:1;min-width:120px;background:var(--surface-2);border:1px solid var(--hairline);border-radius:9px;padding:11px">
+            <div class="eyebrow">Tronc / membres</div><div class="num" style="font-size:19px;font-weight:700;margin-top:3px">{fr(tl,2)}</div>
+            <div style="font-size:11px;color:var(--muted)">distribution</div></div></div></div></div></section>'''
+
+
+def _bone(A):
+    s = A["snap"]
+    t = s.get("bmd_t")
+    above = t is not None and t >= 0.3
+    rb = s.get("regional_bmd", {})
+    prev_rb = A.get("regional_bmd_prev") or {}
+    bars = ""
+    if rb:
+        mx = max([v for v in rb.values()] + [1])
+        order = [("bassin", "Bassin"), ("jambe_g", "Jambes"), ("rachis_lomb", "Rachis L."), ("bras_g", "Bras")]
+        seen = set()
+        for key, lbl in order:
+            if key in rb and lbl not in seen:
+                val = f'{fr(rb[key],3)} g/cm²'
+                if key in prev_rb:
+                    dv = round(rb[key] - prev_rb[key], 3)
+                    col = "var(--good)" if dv > 0 else ("var(--warn)" if dv < 0 else "var(--muted)")
+                    val += (f' <span style="color:{col};font-size:10.5px;font-family:var(--font-mono)">'
+                            f'{"+" if dv>=0 else ""}{fr(dv,3)}</span>')
+                bars += _rbar_bone(lbl, rb[key] / mx * 100, val)
+                seen.add(lbl)
+    en = A.get("lang") == "en"
+    # panneau droit : tendance si historique, sinon "point de départ"
+    trend = A["trends"]["bmd"]
+    if len(trend) > 1:
+        first, last = trend[0], trend[-1]
+        change = round(last["value"] - first["value"], 3)
+        sig = abs(change) >= 0.014
+        yr = trend[0]["date"].year
+        cn_small = f"g/cm² since {yr}" if en else f"g/cm² depuis {yr}"
+        if en:
+            cc = (("Significant <b style='color:var(--good)'>gain</b> (> 0.014 threshold)." if sig
+                   else "Change within measurement noise.")
+                  + f" T-score {fr(first['t'])} → {fr(last['t'])}.")
+        else:
+            cc = (("Gain <b style='color:var(--good)'>significatif</b> (> seuil 0,014)." if sig
+                   else "Variation dans le bruit de mesure.")
+                  + f" T-score {fr(first['t'])} → {fr(last['t'])}.")
+        right = f'''<div class="callout" style="background:var(--good-bg);border-color:transparent">
+          <div class="cn" style="color:var(--good)">{"+" if change>=0 else ""}{fr(change,3)}<small>{cn_small}</small></div>
+          <div class="cc" style="color:var(--ink-2)">{cc}</div></div>'''
+    else:
+        z = s.get("bmd_z")
+        cn_small = _t(A, "vs même âge/sexe", "vs same age/sex")
+        if en:
+            start = "<b style='color:var(--good)'>excellent</b>" if above else "established"
+            cc = (f"Starting point {start}. "
+                  "Maintain it with loading and impact; first trend at the next scan.")
+        else:
+            start = "<b style='color:var(--good)'>excellent</b>" if above else "établi"
+            cc = (f"Point de départ {start}. À maintenir via charges et impacts ; "
+                  "première tendance au prochain scan.")
+        right = f'''<div class="callout" style="background:var(--good-bg);border-color:transparent">
+          <div class="cn" style="color:var(--good)">Z {fr(z) if z is not None else "—"}<small>{cn_small}</small></div>
+          <div class="cc" style="color:var(--ink-2)">{cc}</div></div>'''
+    basis = A.get("bmd_basis", "T")
+    z = s.get("bmd_z")
+    if basis == "Z":
+        if z is not None and z <= -2.0:
+            interp = _t(A, "densité <b style='color:var(--warn)'>sous la fourchette attendue pour l'âge</b> (Z ≤ −2,0).",
+                           "density <b style='color:var(--warn)'>below the range expected for age</b> (Z ≤ −2.0).")
+        else:
+            interp = _t(A, "densité <b style='color:var(--good)'>dans la fourchette attendue pour l'âge</b> (Z-score).",
+                           "density <b style='color:var(--good)'>within the range expected for age</b> (Z-score).")
+        basis_note = _t(A,
+                        "À cet âge/sexe, c'est le <b>Z-score</b> (vs même âge) qui fait foi — "
+                        "les termes « ostéopénie / ostéoporose » ne s'appliquent pas.",
+                        "At this age/sex the <b>Z-score</b> (vs same age) is what counts — "
+                        "the terms “osteopenia / osteoporosis” do not apply.")
+    else:
+        interp = _t(A,
+                    "densité osseuse <b style='color:var(--good)'>au-dessus</b> de la moyenne du jeune adulte."
+                    if above else "densité osseuse <b>normale</b> (T &gt; −1,0).",
+                    "bone density <b style='color:var(--good)'>above</b> the young-adult mean."
+                    if above else "<b>normal</b> bone density (T &gt; −1.0).")
+        basis_note = _t(A, "Chez la femme ménopausée / l'homme ≥ 50 ans, le <b>T-score</b> classe selon l'OMS.",
+                           "In postmenopausal women / men ≥ 50, the <b>T-score</b> classifies per WHO.")
+    tscore_line = _t(A, f"T-score <b>{fr(t)}</b>, Z-score <b>{fr(z)}</b> : {interp}",
+                        f"T-score <b>{fr(t)}</b>, Z-score <b>{fr(z)}</b>: {interp}")
+    tag_note = _t(A,
+                  f"Le DXA <b>corps entier</b> n'est pas l'outil de diagnostic de l'ostéoporose. "
+                  f"{basis_note} Diagnostic fiable = <b>rachis AP (L1–L4) + col fémoral + hanche totale</b>, sur le site le plus bas.",
+                  f"<b>Whole-body</b> DXA is not the tool to diagnose osteoporosis. "
+                  f"{basis_note} Reliable diagnosis = <b>AP spine (L1–L4) + femoral neck + total hip</b>, on the lowest site.")
+    reg_note = _t(A,
+                  "Sous-régions du scan corps entier (sans T/Z) — <b>non diagnostiques</b> (ROI et base de référence "
+                  "différentes du rachis AP / hanche dédiés ; le bassin n'est pas un site reconnu). En revanche, le "
+                  "<b>Δ vs examen précédent</b> (même machine, même méthode) est une comparaison valide pour le suivi.",
+                  "Whole-body sub-regions (no T/Z) — <b>not diagnostic</b> (ROI and reference base differ from the "
+                  "dedicated AP spine / hip; the pelvis is not a recognised site). However, the "
+                  "<b>Δ vs previous exam</b> (same machine, same method) is a valid comparison for follow-up.")
+    return f'''<section>
+    <div class="sec-head"><span class="idx">05</span><h2 style="color:var(--bone)">Os — densité minérale</h2>
+      <span class="note">Indicateur global. Le diagnostic OMS repose sur des sites dédiés (§ ci-dessous).</span></div>
+    <div class="grid g-2">
+      <div class="card"><div class="eyebrow" style="margin-bottom:14px">DMO corps entier — indicateur, non diagnostique</div>
+        {_meter("DMO totale", "", f'{fr(s.get("bmd_total"),3)} <small>g/cm² · T {fr(t)} · Z {fr(z)}</small>', A["meters"]["bmd"])}
+        <p style="font-size:13px;color:var(--ink-2);margin-top:14px;line-height:1.55">{tscore_line}</p>
+        <div class="tag-note"><span>ⓘ</span><div>{tag_note}</div></div></div>
+      <div class="card"><div class="eyebrow" style="margin-bottom:14px">Densité par région (g/cm²)</div>
+        {right}<div style="margin-top:18px">{bars}</div>
+        <p style="font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5">{reg_note}</p>
+        <p class="sport-bone-note" id="sport-bone-note" hidden></p></div></div></section>'''
+
+
+def _trends_section(A):
+    tr = A["trends"]
+    if A["has_history"] and tr["bf"] and tr["lean"] and tr["bmd"]:
+        c1 = _line_svg(tr["bf"], "var(--metab)", "Tendance masse grasse")
+        c2 = _line_svg(tr["lean"], "var(--muscle)", "Tendance masse maigre")
+        c3 = _line_svg(tr["bmd"], "var(--bone)", "Tendance densité osseuse")
+        bf0, bf1 = tr["bf"][0]["value"], tr["bf"][-1]["value"]
+        return f'''<section data-mod="trends">
+      <div class="sec-head"><span class="idx">06</span><h2>Évolution dans le temps</h2>
+        <span class="note">{A["n_exams"]} examens — la vraie valeur d'un suivi DXA est la trajectoire.</span></div>
+      <div class="card"><div class="trend-grid">
+        <div class="trend"><h4>Masse grasse</h4><div class="cap">% du corps</div>{c1}
+          <div class="delta2 down">▼ {fr(bf0-bf1)} pts · {fr(bf0)} → {fr(bf1)} %</div></div>
+        <div class="trend"><h4>Masse maigre</h4><div class="cap">kg</div>{c2}
+          <div class="delta2 flat">préservée pendant la perte de gras</div></div>
+        <div class="trend"><h4>Densité osseuse</h4><div class="cap">g/cm²</div>{c3}
+          <div class="delta2 up">▲ {fr(tr["bmd"][-1]["value"]-tr["bmd"][0]["value"],3)}</div></div>
+      </div></div></section>'''
+    # baseline
+    s = A["snap"]
+    return f'''<section data-mod="trends">
+    <div class="sec-head"><span class="idx">06</span><h2>Point de départ (baseline)</h2>
+      <span class="note">Premier examen : les tendances apparaîtront dès le 2ᵉ scan.</span></div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <div style="width:34px;height:34px;border-radius:9px;background:var(--brand-bg);color:var(--brand);display:grid;place-items:center;font-size:18px">◷</div>
+        <p style="font-size:14px;color:var(--ink-2);margin:0">Ce <b>premier DXA</b> devient la <b>référence personnelle</b> à laquelle les prochains examens seront comparés.</p></div>
+      <div class="grid g-4">
+        <div style="background:var(--surface-2);border:1px solid var(--hairline);border-radius:11px;padding:14px"><div class="eyebrow">Masse grasse</div><div class="num" style="font-size:24px;font-weight:700;margin-top:4px;color:var(--metab)">{fr(s.get("bf_pct"))} %</div></div>
+        <div style="background:var(--surface-2);border:1px solid var(--hairline);border-radius:11px;padding:14px"><div class="eyebrow">Masse maigre</div><div class="num" style="font-size:24px;font-weight:700;margin-top:4px;color:var(--muscle)">{fr(s.get("lean_g",0)/1000 if s.get("lean_g") else None)} kg</div></div>
+        <div style="background:var(--surface-2);border:1px solid var(--hairline);border-radius:11px;padding:14px"><div class="eyebrow">Densité osseuse</div><div class="num" style="font-size:24px;font-weight:700;margin-top:4px;color:var(--bone)">{fr(s.get("bmd_total"),3)}</div></div>
+        <div style="background:var(--surface-2);border:1px solid var(--hairline);border-radius:11px;padding:14px"><div class="eyebrow">Graisse viscérale</div><div class="num" style="font-size:24px;font-weight:700;margin-top:4px;color:var(--brand)">{fr(s.get("vat_mass_g"),0)} g</div></div>
+      </div></div></section>'''
+
+
+def _interp_section(A):
+    it = A["interp"]
+    acts = ""
+    for i, (h, p, pri) in enumerate(it["actions"], 1):
+        acts += f'''<div class="act"><div class="rank">{i}</div><div>
+          <h4>{esc(h)}</h4><p>{esc(p)}</p><span class="pri">{esc(pri)}</span></div></div>'''
+    return f'''<section>
+    <div class="sec-head"><span class="idx">07</span><h2>Interprétation &amp; plan d'action</h2>
+      <span class="note">Traduire les chiffres en décisions.</span></div>
+    <div class="interp"><div class="readbox">
+      <p class="lead">{esc(it["lead"])}</p><p>{esc(it["para"])}</p></div>
+      <div class="actions">{acts}</div></div></section>'''
+
+
+def _method(A):
+    b = A["bioage"]; d = A["demo"]
+    w = b["weights"]
+    refs_sex = ("white woman" if d["sex"] == "F" else "white man") if A.get("lang") == "en" \
+        else ("femme blanche" if d["sex"] == "F" else "homme blanc")
+    formula = _t(A,
+                 f'''Âge_bio = {w['metabolic']:.2f}·Âge<sub>métab</sub> + {w['muscle']:.2f}·Âge<sub>muscle</sub> + {w['bone']:.2f}·Âge<sub>os</sub><br>
+          = {w['metabolic']:.2f}·({b['metabolic']}) + {w['muscle']:.2f}·({b['muscle']}) + {w['bone']:.2f}·({b['bone']})<br>
+          ≈ {b['composite']} ans &nbsp;(vs {d['age']} civil)''',
+                 f'''Bio_age = {w['metabolic']:.2f}·Age<sub>metab</sub> + {w['muscle']:.2f}·Age<sub>muscle</sub> + {w['bone']:.2f}·Age<sub>bone</sub><br>
+          = {w['metabolic']:.2f}·({b['metabolic']}) + {w['muscle']:.2f}·({b['muscle']}) + {w['bone']:.2f}·({b['bone']})<br>
+          ≈ {b['composite']} yrs &nbsp;(vs {d['age']} chrono)''')
+    src_pop = _t(A,
+                 "Références de composition <b>européennes, appariées Hologic</b> : Radecka 2025 (adultes polonais, "
+                 "Hologic ; ALMI/FFMI) &amp; seuils <b>EWGSOP2</b>, Coin 2008/2013 (Italie ; FFMI/% masse grasse), "
+                 "Pratt 2025 (trajectoires), Hew-Butler 2025 (plancher gras athlète). <b>TAV</b> : Swainson 2019 (UK) / "
+                 "LEAD 2020, exprimé en surface et recalibré Hologic via <b>OsteoLaus</b> (Vendrami 2023, Lausanne). "
+                 "La DMO T-score native vient de la base Hologic (NHANES III, fémur), fixée à l'acquisition. "
+                 "Comparaison par sport (indicative, cohortes compétitives) : Santos 2014, Jagim 2024, Tenforde 2018 (impact osseux). "
+                 "⚠ Les valeurs GE-Lunar ne s'appliquent pas directement à des mesures Hologic.",
+                 "<b>European, Hologic-matched</b> composition references: Radecka 2025 (Polish adults, Hologic; "
+                 "ALMI/FFMI) &amp; <b>EWGSOP2</b> cut-offs, Coin 2008/2013 (Italy; FFMI/body-fat %), Pratt 2025 "
+                 "(trajectories), Hew-Butler 2025 (athlete fat floor). <b>VAT</b>: Swainson 2019 (UK) / LEAD 2020, "
+                 "expressed as area and Hologic-recalibrated via <b>OsteoLaus</b> (Vendrami 2023, Lausanne). "
+                 "The native BMD T-score comes from the Hologic database (NHANES III, femur), fixed at acquisition. "
+                 "Sport comparison (indicative, competitive cohorts): Santos 2014, Jagim 2024, Tenforde 2018 (bone impact). "
+                 "⚠ GE-Lunar values do not apply directly to Hologic measurements.")
+    src_nut = _t(A,
+                 "<b>BMR</b> Cunningham 1991 (500 + 22·masse maigre). <b>DEJ</b> = BMR × facteur d'activité (PAL, Harris-Benedict). "
+                 "<b>Calories</b> déficit −20 % / surplus +10 %. <b>Protéines</b> Morton 2018 (1,6–2,2 g/kg) ; Helms 2014 "
+                 "(2,3–3,1 g/kg de masse maigre en sèche). <b>Lipides</b> 30–40 % des kcal selon la pratique (min hormonal ~0,6 g/kg). "
+                 "<b>Répartition/repas</b> ~0,4 g protéines/kg/prise (Moore 2015 ; Schoenfeld &amp; Aragon 2018). Énergie 4/4/9 (Atwater).",
+                 "<b>BMR</b> Cunningham 1991 (500 + 22·lean mass). <b>TDEE</b> = BMR × activity factor (PAL, Harris-Benedict). "
+                 "<b>Calories</b> deficit −20% / surplus +10%. <b>Protein</b> Morton 2018 (1.6–2.2 g/kg); Helms 2014 "
+                 "(2.3–3.1 g/kg lean mass when cutting). <b>Fat</b> 30–40% of kcal by training (hormonal min ~0.6 g/kg). "
+                 "<b>Per-meal split</b> ~0.4 g protein/kg/meal (Moore 2015; Schoenfeld &amp; Aragon 2018). Energy 4/4/9 (Atwater).")
+    U = "https://consensus.app/papers/details/"
+    refs_ol = _t(A,
+        f'''<ol class="refs">
+          <li>Lian et al. <a href="{U}71eb54ae63975314a60c657f8a00fdef/">Biomarqueur d'âge par composition (DXA, deep-learning)</a>. <i>Comm. Medicine</i>, 2025.</li>
+          <li>Radecka et al. <a href="{U}d0d1468b4a455df4adc33803cf731259/">Normes ALMI/FFMI — adultes polonais (Hologic)</a>. <i>Aging</i>, 2025.</li>
+          <li>Coin et al. <a href="{U}a229a7ebc4265bdcbf13cf2633e02eb8/">Références FFM/FM — adultes italiens</a>. <i>Clin. Nutrition</i>, 2008.</li>
+          <li>Coin et al. <a href="{U}de852a535b195773b990a6eb2c683938/">Sarcopénie : ASMM (Italie) &amp; EWGSOP2</a>. <i>JAMDA</i>, 2013.</li>
+          <li>Pratt et al. <a href="{U}0377acb63ed154798153e56d92631aa5/">Trajectoires DXA de composition (âge adulte)</a>. <i>Clin. Nutrition</i>, 2025.</li>
+          <li>Swainson et al. <a href="{U}4e8b93b6628f54e1a330489b2f57b613/">Intervalles de référence du TAV (DXA)</a>. <i>Int. J. Obesity</i>, 2019.</li>
+          <li>Vendrami et al. <a href="{U}bb73e299c3ae5c22a5b3049eb86bef18/">OsteoLaus — cross-calibration Hologic / Lunar (Lausanne)</a>. <i>J. Clin. Densitometry</i>, 2023.</li>
+          <li>Hew-Butler et al. <a href="{U}1169ecbb7dcd5936b80916645d06bf58/">Plancher de masse grasse (athlète)</a>. <i>J. Clin. Densitometry</i>, 2025.</li>
+        </ol>''',
+        f'''<ol class="refs">
+          <li>Lian et al. <a href="{U}71eb54ae63975314a60c657f8a00fdef/">Body-composition age biomarker (DXA, deep-learning)</a>. <i>Comm. Medicine</i>, 2025.</li>
+          <li>Radecka et al. <a href="{U}d0d1468b4a455df4adc33803cf731259/">ALMI/FFMI norms — Polish adults (Hologic)</a>. <i>Aging</i>, 2025.</li>
+          <li>Coin et al. <a href="{U}a229a7ebc4265bdcbf13cf2633e02eb8/">FFM/FM reference values — Italian adults</a>. <i>Clin. Nutrition</i>, 2008.</li>
+          <li>Coin et al. <a href="{U}de852a535b195773b990a6eb2c683938/">Sarcopenia: ASMM (Italy) &amp; EWGSOP2</a>. <i>JAMDA</i>, 2013.</li>
+          <li>Pratt et al. <a href="{U}0377acb63ed154798153e56d92631aa5/">DXA body-composition trajectories (adult age)</a>. <i>Clin. Nutrition</i>, 2025.</li>
+          <li>Swainson et al. <a href="{U}4e8b93b6628f54e1a330489b2f57b613/">VAT reference intervals (DXA)</a>. <i>Int. J. Obesity</i>, 2019.</li>
+          <li>Vendrami et al. <a href="{U}bb73e299c3ae5c22a5b3049eb86bef18/">OsteoLaus — Hologic / Lunar cross-calibration (Lausanne)</a>. <i>J. Clin. Densitometry</i>, 2023.</li>
+          <li>Hew-Butler et al. <a href="{U}1169ecbb7dcd5936b80916645d06bf58/">Athlete fat-mass floor</a>. <i>J. Clin. Densitometry</i>, 2025.</li>
+        </ol>''')
+    return f'''<section>
+    <div class="sec-head"><span class="idx">08</span><h2>Méthode, références &amp; limites</h2></div>
+    <div class="grid g-2">
+      <div class="card method"><h4 style="margin-top:0">Comment est calculé l'âge biologique DXA</h4>
+        <p>Chaque système est replacé sur la trajectoire d'âge d'une population de référence, puis converti en âge équivalent. Composite pondéré :</p>
+        <div class="formula">{formula}</div>
+        <h4>Sources des populations de référence</h4>
+        <p>{src_pop}</p>
+        <h4>Sources — besoins nutritionnels</h4>
+        <p>{src_nut}</p>
+      </div>
+      <div class="card method"><h4 style="margin-top:0">Références scientifiques</h4>
+        {refs_ol}</div></div>
+    <p class="disclaimer"><b>Avertissement.</b> L'« âge biologique DXA » est un indice pédagogique dérivé des mesures de
+      composition corporelle et de populations de référence publiées ; ce n'est pas un diagnostic médical ni un biomarqueur
+      validé cliniquement. Les images DXA ne sont pas destinées à un usage diagnostique. Toute interprétation clinique relève
+      d'un professionnel de santé. Données : export Hologic Horizon Wi / APEX. Rapport généré automatiquement.</p>
+    <div class="foot"><span>{esc(R.CLINIC_FOOTER)}</span>
+      <span>Rapport 2.0 · moteur v{R.VERSION} ({R.VERSION_DATE})</span></div></section>'''
+
+
+def _coach_panel(A):
+    """Panneau de configuration coach — écran seulement, masqué au PDF."""
+    has_nut = bool(A.get("metabolism"))
+    has_proj = bool(A["snap"].get("bf_pct") and A["snap"].get("lean_g"))
+    has_since = bool(A.get("since_last"))
+    has_hydra = bool((A.get("hydration") or {}).get("tbw_l"))
+    has_reco = bool(A.get("training_reco"))
+    mods = [("bioage", "Âge biologique", True), ("since", "Depuis la dernière fois", has_since),
+            ("metabolism", "Métabolisme (BMR)", has_nut),
+            ("nutrition", "Besoins nutritionnels", has_nut), ("meals", "Répartition des repas", has_nut),
+            ("hydra", "Hydratation & compléments", has_hydra),
+            ("reco", "Recommandation d'entraînement", has_reco),
+            ("projector", "Projecteur d'objectif", has_proj), ("trends", "Évolution / tendances", True)]
+    checks = ""
+    for key, lab, on in mods:
+        dis = "" if on else " disabled"
+        chk = " checked" if on else ""
+        checks += (f'<label class="cp-check"><input type="checkbox" data-toggle="{key}"{chk}{dis}>'
+                   f'{esc(lab)}</label>')
+    if not has_nut:
+        nut_controls = ""
+    else:
+        acts = "".join(f'<option value="{k}"{" selected" if k == R.ACTIVITY_DEFAULT else ""}>{esc(lab)}</option>'
+                       for k, lab, _ in R.ACTIVITY)
+        goals = "".join(f'<option value="{k}"{" selected" if k == R.GOAL_DEFAULT else ""}>{esc(lab)}</option>'
+                        for k, lab, _ in R.GOALS)
+        trainings = "".join(f'<option value="{k}"{" selected" if k == R.TRAINING_DEFAULT else ""}>{esc(lab)} ({pct}% lip.)</option>'
+                            for k, lab, pct in R.TRAINING)
+        rhythms = "".join(f'<option value="{k}"{" selected" if k == R.RHYTHM_DEFAULT else ""}>{esc(lab)}</option>'
+                          for k, lab, _ in R.RHYTHM)
+        pbasis = "FFM" if R.PROTEIN_BASIS == "ffm" else "poids"
+        nut_controls = f'''
+      <div class="cp-group"><label>Objectif</label>
+        <select class="cp-select" id="nut-goal">{goals}</select></div>
+      <div class="cp-group"><label>Rythme (déficit/surplus)</label>
+        <select class="cp-select" id="nut-rhythm">{rhythms}</select></div>
+      <div class="cp-group"><label>Niveau d'activité</label>
+        <select class="cp-select" id="nut-activity">{acts}</select></div>
+      <div class="cp-group"><label>Pratique sportive (ratio lip./gluc.)</label>
+        <select class="cp-select" id="nut-training">{trainings}</select></div>
+      <div class="cp-group"><label>Repas / jour</label>
+        <select class="cp-select" id="nut-meals"><option value="3">3 repas</option>
+          <option value="4" selected>4 repas</option><option value="5">5 repas</option></select></div>
+      <div class="cp-group"><label>Protéines (g/kg {pbasis}) — vide = auto</label>
+        <input class="cp-select" type="number" min="1" max="3.5" step="0.1" id="nut-pgk" placeholder="auto" style="min-width:90px"></div>
+      <div class="cp-group"><label>Forcer macros (g) — vide = auto</label>
+        <div class="dxin"><input class="ov-in" type="number" min="0" step="1" id="ov-prot" placeholder="P">
+          <input class="ov-in" type="number" min="0" step="1" id="ov-carb" placeholder="G">
+          <input class="ov-in" type="number" min="0" step="1" id="ov-fat" placeholder="L"></div></div>'''
+    proj_controls = ""
+    if has_proj:
+        proj_controls = '''
+      <div class="cp-group"><label>Cible % gras</label>
+        <input class="cp-select" type="number" step="0.5" id="proj-bf" style="min-width:100px"></div>
+      <div class="cp-group"><label>Cible masse maigre (kg)</label>
+        <input class="cp-select" type="number" step="0.5" id="proj-lean" style="min-width:120px"></div>'''
+    # diagnostic osseux — sites dédiés (saisie manuelle depuis un scan rachis+hanche)
+    meno = ""
+    if A["demo"]["sex"] == "F":
+        post = " selected" if A["demo"]["age"] >= 51 else ""
+        pre = " selected" if A["demo"]["age"] < 51 else ""
+        meno = (f'<div class="dxsite"><span>Statut</span><select id="dx-meno" class="dxsel">'
+                f'<option value="post"{post}>Post-méno</option><option value="pre"{pre}>Préméno</option></select></div>')
+    bonedx = f'''<div class="cp-group" style="flex-basis:100%">
+      <label>Diagnostic osseux — scan dédié rachis + hanche (T-score ; Z si &lt;50 ou préménopause)</label>
+      <div class="dxrow">
+        <div class="dxsite"><span>Rachis L1–L4</span><div class="dxin"><input type="number" step="0.1" id="dx-spine-t" placeholder="T"><input type="number" step="0.1" id="dx-spine-z" placeholder="Z"></div></div>
+        <div class="dxsite"><span>Col fémoral</span><div class="dxin"><input type="number" step="0.1" id="dx-neck-t" placeholder="T"><input type="number" step="0.1" id="dx-neck-z" placeholder="Z"></div></div>
+        <div class="dxsite"><span>Hanche totale</span><div class="dxin"><input type="number" step="0.1" id="dx-hip-t" placeholder="T"><input type="number" step="0.1" id="dx-hip-z" placeholder="Z"></div></div>
+        {meno}
+      </div></div>'''
+    en = A.get("lang") == "en"
+    sport_opts = f'<option value="">{"— none —" if en else "— aucun —"}</option>'
+    for gk, gfr, gen in R.SPORT_GROUPS:
+        opts = "".join(f'<option value="{s["key"]}">{esc(s["en"] if en else s["fr"])}</option>'
+                       for s in R.SPORTS if s["group"] == gk)
+        sport_opts += f'<optgroup label="{esc(gen if en else gfr)}">{opts}</optgroup>'
+    sport_lbl = "Client’s sport (compare indices)" if en else "Sport du client (comparer les index)"
+    sport_control = (f'<div class="cp-group"><label>{sport_lbl}</label>'
+                     f'<select class="cp-select" id="cp-sport">{sport_opts}</select></div>')
+    return f'''<div class="coach-panel no-print">
+    <span class="cp-tag">Panneau coach — n'apparaît pas dans le PDF</span>
+    <h3>Personnaliser le rapport selon le client</h3>
+    <div class="cp-row">
+      <div class="cp-group"><label>Sections à inclure</label>
+        <div class="cp-checks">{checks}</div></div>
+      {sport_control}
+      {nut_controls}{proj_controls}
+      <button class="cp-export" onclick="window.print()">🖨 Exporter en PDF</button>
+    </div>
+    <div class="cp-row" style="margin-top:14px">{bonedx}</div>
+    <div class="cp-hint">Cochez/décochez les sections, ajustez l'objectif, saisissez le scan osseux dédié si disponible, puis « Exporter en PDF » : le PDF ne contiendra que ce qui est affiché.</div>
+  </div>'''
+
+
+def _metabolism(A):
+    mb = A["metabolism"]; nu = A["nutrition"]
+    return f'''<section data-mod="metabolism">
+    <div class="sec-head"><span class="idx">·</span><h2>Métabolisme de base</h2>
+      <span class="note">Estimé par la formule de Cunningham (1991) à partir de la masse maigre mesurée.</span></div>
+    <div class="card">
+      <div class="kpi-row">
+        <div class="kpi"><div class="kpi-lab">Masse maigre (FFM)</div>
+          <div class="kpi-val">{fr(mb["ffm_kg"])} <small>kg</small></div>
+          <div class="kpi-sub">mesurée au DXA</div></div>
+        <div class="kpi"><div class="kpi-lab">Métabolisme de base</div>
+          <div class="kpi-val" style="color:var(--metab)">{mb["bmr"]} <small>kcal/j</small></div>
+          <div class="kpi-sub">au repos (BMR)</div></div>
+        <div class="kpi"><div class="kpi-lab">Dépense énergétique</div>
+          <div class="kpi-val" style="color:var(--brand)"><span id="tdee">{nu["tdee"]}</span> <small>kcal/j</small></div>
+          <div class="kpi-sub" id="tdee-sub">BMR × activité (modéré)</div></div>
+        <div class="kpi"><div class="kpi-lab">Formule</div>
+          <div class="kpi-val" style="font-size:16px">500 + 22×FFM</div>
+          <div class="kpi-sub">Cunningham 1991</div></div>
+      </div>
+      <p style="font-size:12.5px;color:var(--ink-2);margin-top:14px;line-height:1.55">
+        {_t(A,
+            "Le DXA mesure directement la masse maigre — le tissu qui consomme l'énergie — ce qui rend l'estimation du "
+            "métabolisme <b>bien plus précise</b> que les formules basées sur le poids seul (Harris-Benedict, Mifflin).",
+            "DXA measures lean mass directly — the tissue that burns energy — making the metabolism estimate "
+            "<b>far more accurate</b> than weight-only formulas (Harris-Benedict, Mifflin).")}</p>
+    </div></section>'''
+
+
+def _nutrition(A):
+    nu = A["nutrition"]
+    return f'''<section data-mod="nutrition">
+    <div class="sec-head"><span class="idx">·</span><h2>Besoins nutritionnels</h2>
+      <span class="note">Cible calorique et macros selon l'objectif — modifiables dans le panneau coach.</span></div>
+    <div class="card">
+      <div class="kpi-row" style="grid-template-columns:1.1fr 1fr 1fr 1fr">
+        <div class="kpi"><div class="kpi-lab">Cible calorique <span id="nut-goal-lab">(maintien)</span></div>
+          <div class="kpi-val" style="color:var(--brand)"><span id="kcal-target">{nu["kcal"]}</span> <small>kcal/j</small></div>
+          <div class="kpi-sub" id="kcal-sub">= dépense énergétique</div></div>
+        <div class="kpi"><div class="kpi-lab">Protéines</div>
+          <div class="kpi-val" style="color:var(--muscle)"><span id="m-prot">{nu["protein"]}</span> <small>g</small></div>
+          <div class="kpi-sub"><span id="m-prot-kg">{fr(nu["p_per_kg"])}</span> g/kg {"FFM" if R.PROTEIN_BASIS == "ffm" else "poids"} · <span id="m-prot-kcal">{nu["kcal_p"]}</span> kcal</div></div>
+        <div class="kpi"><div class="kpi-lab">Glucides</div>
+          <div class="kpi-val" style="color:var(--metab)"><span id="m-carb">{nu["carbs"]}</span> <small>g</small></div>
+          <div class="kpi-sub"><span id="m-carb-kcal">{nu["kcal_c"]}</span> kcal</div></div>
+        <div class="kpi"><div class="kpi-lab">Lipides</div>
+          <div class="kpi-val" style="color:var(--warn)"><span id="m-fat">{nu["fat"]}</span> <small>g</small></div>
+          <div class="kpi-sub"><span id="m-fat-kcal">{nu["kcal_f"]}</span> kcal</div></div>
+      </div>
+      <div class="macrobar" id="macrobar" style="margin-top:16px"></div>
+      <div class="macrokey">
+        <div class="mk"><span class="msw" style="background:var(--muscle)"></span>Protéines <b id="pct-prot"></b></div>
+        <div class="mk"><span class="msw" style="background:var(--metab)"></span>Glucides <b id="pct-carb"></b></div>
+        <div class="mk"><span class="msw" style="background:var(--warn)"></span>Lipides <b id="pct-fat"></b></div>
+      </div>
+      <p id="fat-note" style="font-size:11.5px;color:var(--muted);margin-top:10px;font-family:var(--font-mono)"></p>
+    </div></section>'''
+
+
+def _meals(A):
+    return f'''<section data-mod="meals">
+    <div class="sec-head"><span class="idx">·</span><h2>Répartition des repas</h2>
+      <span class="note">Protéines réparties pour maximiser la synthèse musculaire (~0,4 g/kg/prise).</span></div>
+    <div class="card">
+      <div class="meals-grid" id="meals-container"></div>
+      <div id="mps-note" style="margin-top:14px"></div>
+    </div></section>'''
+
+
+def _hydra(A):
+    h = A.get("hydration") or {}
+    if not h.get("tbw_l"):
+        return ""
+    fiber0 = A["nutrition"]["fiber"] if A.get("nutrition") else None
+    return f'''<section data-mod="hydra">
+    <div class="sec-head"><span class="idx">·</span><h2>Hydratation, fibres &amp; compléments</h2>
+      <span class="note">Repères pratiques dérivés de la composition et des besoins.</span></div>
+    <div class="card">
+      <div class="kpi-row">
+        <div class="kpi"><div class="kpi-lab">Eau corporelle totale</div>
+          <div class="kpi-val" style="color:var(--metab)">{fr(h["tbw_l"])} <small>L</small></div>
+          <div class="kpi-sub">≈ 72 % de la masse maigre</div></div>
+        <div class="kpi"><div class="kpi-lab">Apport hydrique cible</div>
+          <div class="kpi-val" style="color:var(--brand)">{fr(h["water_l"])} <small>L/j</small></div>
+          <div class="kpi-sub">~35 ml/kg · + pertes à l'effort</div></div>
+        <div class="kpi"><div class="kpi-lab">Fibres</div>
+          <div class="kpi-val" style="color:var(--good)"><span id="fiber-val">{fiber0 if fiber0 is not None else "—"}</span> <small>g/j</small></div>
+          <div class="kpi-sub">~14 g / 1000 kcal</div></div>
+        <div class="kpi"><div class="kpi-lab">Créatine</div>
+          <div class="kpi-val" style="color:var(--muscle)">{R.CREATINE_G_PER_DAY} <small>g/j</small></div>
+          <div class="kpi-sub">monohydrate, en continu</div></div>
+      </div>
+      <div class="tag-note" style="margin-top:14px"><span>⏱</span><div>{_t(A,
+        "<b>Timing péri-entraînement :</b> 20–40 g de protéines dans les ~2 h autour de la séance ; concentrez une "
+        "partie des <b>glucides</b> avant/après l'entraînement, surtout si la séance est longue ou intense "
+        "(endurance). Hors entraînement, la répartition compte moins que le total quotidien.",
+        "<b>Peri-workout timing:</b> 20–40 g of protein within ~2 h around the session; put some of the "
+        "<b>carbs</b> before/after training, especially for long or intense sessions (endurance). Outside "
+        "training, timing matters less than the daily total.")}</div></div>
+    </div></section>'''
+
+
+def _reco(A):
+    recs = A.get("training_reco") or []
+    if not recs:
+        return ""
+    cards = ""
+    for i, (h, p) in enumerate(recs, 1):
+        cards += (f'<div class="act"><div class="rank">{i}</div><div>'
+                  f'<h4>{esc(h)}</h4><p>{esc(p)}</p></div></div>')
+    return f'''<section data-mod="reco">
+    <div class="sec-head"><span class="idx">·</span><h2 style="color:var(--muscle)">Recommandation d'entraînement</h2>
+      <span class="note">Fondé sur les signaux DXA — principes evidence-based (volume, RIR, fréquence).</span></div>
+    <div class="actions">{cards}</div>
+    <p style="font-size:11px;color:var(--muted);margin-top:10px">Repères généraux, à adapter au niveau, à la
+      récupération et aux préférences du client.</p></section>'''
+
+
+def _bone_dx(A):
+    """Bloc diagnostic osseux sur sites dédiés — masqué tant qu'aucune valeur saisie (JS)."""
+    note = _t(A,
+              "T-score (femme ménopausée / homme ≥ 50 ans) : ostéoporose ≤ −2,5 · ostéopénie −1 à −2,5 · normal &gt; −1. "
+              "Sinon Z-score : « sous la fourchette attendue pour l'âge » si ≤ −2,0. Diagnostic clinique réservé au médecin.",
+              "T-score (postmenopausal women / men ≥ 50): osteoporosis ≤ −2.5 · osteopenia −1 to −2.5 · normal &gt; −1. "
+              "Otherwise Z-score: “below the range expected for age” if ≤ −2.0. Clinical diagnosis is the physician's remit.")
+    return f'''<section data-mod="bonedx" class="hidden" id="bonedx-block">
+    <div class="sec-head"><span class="idx">·</span><h2 style="color:var(--bone)">Diagnostic osseux — sites dédiés</h2>
+      <span class="note">Rachis AP + hanche · classification sur le site le plus bas (ISCD/OMS).</span></div>
+    <div class="card">
+      <div id="bonedx-verdict" style="display:flex;align-items:center;flex-wrap:wrap;margin-bottom:8px"></div>
+      <div id="bonedx-rows"></div>
+      <p style="font-size:11.5px;color:var(--muted);margin-top:12px;line-height:1.5">{note}</p>
+    </div></section>'''
+
+
+_SINCE_LBL = {
+    "fr": {"weight": "Poids total", "bf_pct": "% masse grasse", "fat": "Masse grasse",
+           "lean": "Masse maigre", "bmd": "Densité osseuse"},
+    "en": {"weight": "Total weight", "bf_pct": "body fat %", "fat": "Fat mass",
+           "lean": "Lean mass", "bmd": "Bone density"},
+}
+
+
+def _since(A):
+    s = A.get("since_last")
+    if not s:
+        return ""
+    en = A.get("lang") == "en"
+    lbl = _SINCE_LBL["en" if en else "fr"]
+    nf = (lambda x, d=1: f"{x:.{d}f}") if en else (lambda x, d=1: fr(x, d))
+    arrows = {"up": "▲", "down": "▼", "flat": "■"}
+    rows_html = ""
+    goods, warns = [], []
+    for r in s["rows"]:
+        name = lbl[r["key"]]
+        sign = "+" if r["delta"] > 0 else ""
+        dtxt = f'{sign}{nf(r["delta"], r["dec"])} {r["unit"]}'
+        sig = f'<span class="since-sig">{"significant" if en else "significatif"}</span>' if r.get("sig") else ""
+        rows_html += (f'<div class="since-row"><span class="sl">{esc(name)}</span>'
+                      f'<span class="sv">{nf(r["prev"], r["dec"])} → {nf(r["curr"], r["dec"])} {esc(r["unit"])}</span>'
+                      f'<span class="delta-chip {r["verdict"]}">{arrows[r["dir"]]} {dtxt}{sig}</span></div>')
+        short = f'{name.lower()} {dtxt}'
+        if r["verdict"] == "good":
+            goods.append(short)
+        elif r["verdict"] == "warn":
+            warns.append(short)
+    if en:
+        lead = f'Over {nf(s["months"])} months'
+        if goods:
+            lead += ": " + ", ".join(goods)
+        if warns:
+            lead += (" — watch: " if not goods else " ; watch: ") + ", ".join(warns)
+        lead += ": composition broadly stable." if not goods and not warns else "."
+        title, note = "Since last time", "What changed between the last two exams."
+    else:
+        lead = f'En {nf(s["months"])} mois'
+        if goods:
+            lead += " : " + ", ".join(goods)
+        if warns:
+            lead += (" — à surveiller : " if not goods else " ; à surveiller : ") + ", ".join(warns)
+        lead += " : composition globalement stable." if not goods and not warns else "."
+        title, note = "Depuis la dernière fois", "Ce qui a changé entre les deux derniers examens."
+    when = f'{_date_fr(s["prev_date"])} → {_date_fr(s["curr_date"])}'
+    foot = ("Weight alone doesn't tell all: DXA distinguishes what comes from <b>fat</b>, <b>muscle</b> and <b>bone</b>. "
+            "Significant-change threshold for bone density: ±0.014 g/cm²." if en else
+            "Le poids seul ne dit pas tout : le DXA distingue ce qui vient du <b>gras</b>, du <b>muscle</b> et de l'<b>os</b>. "
+            "Seuil de variation significative de la densité osseuse : ±0,014 g/cm².")
+    return f'''<section data-mod="since">
+    <div class="sec-head"><span class="idx">·</span><h2>{title}</h2>
+      <span class="note">{note}</span></div>
+    <div class="card">
+      <div class="since-head"><p class="since-lead">{esc(lead)}</p><span class="since-when">{when}</span></div>
+      <div class="since-grid">{rows_html}</div>
+      <p style="font-size:11.5px;color:var(--muted);margin-top:12px;line-height:1.5">{foot}</p>
+    </div></section>'''
+
+
+def _projector(A):
+    return '''<section data-mod="projector">
+    <div class="sec-head"><span class="idx">·</span><h2>Projecteur d'objectif</h2>
+      <span class="note">Estimation à rythme constant — vitesse mesurée si un historique existe, sinon rythme type.</span></div>
+    <div class="card">
+      <div class="kpi-row" style="grid-template-columns:1fr 1fr">
+        <div class="kpi"><div class="kpi-lab">Objectif masse grasse</div>
+          <div class="kpi-val" style="color:var(--metab);font-size:20px"><span id="proj-fat-date">—</span></div>
+          <div class="kpi-sub" id="proj-fat-cur">—</div>
+          <div class="kpi-sub" id="proj-fat-rate" style="margin-top:4px;color:var(--muted)">—</div></div>
+        <div class="kpi"><div class="kpi-lab">Objectif masse maigre</div>
+          <div class="kpi-val" style="color:var(--muscle);font-size:20px"><span id="proj-lean-date">—</span></div>
+          <div class="kpi-sub" id="proj-lean-cur">—</div>
+          <div class="kpi-sub" id="proj-lean-rate" style="margin-top:4px;color:var(--muted)">—</div></div>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-top:14px;line-height:1.5">
+        Réglez les cibles dans le panneau coach. Projection indicative, à rythme constant ; la réalité dépend de
+        l'assiduité, du sommeil et de la nutrition.</p>
+    </div></section>'''
+
+
+def _script(A):
+    mb = A.get("metabolism")
+    lang = A.get("lang", "fr")
+
+    def _tl(s):  # traduit un libellé isolé selon la langue
+        return i18n.translate(s, lang)
+
+    cfg = {
+        "en": lang == "en",
+        "sex": A["demo"]["sex"], "age": A["demo"]["age"],
+        "curBF": A["snap"].get("bf_pct"),
+        "curALMI": A["snap"].get("almi"),
+        "curLean": round(A["snap"]["lean_g"] / 1000, 1) if A["snap"].get("lean_g") else None,
+        "velFat": A["velocity"]["fat_pct_per_month"], "velLean": A["velocity"]["lean_kg_per_month"],
+        "defFatLoss": R.PROJ_FAT_LOSS_PCT_PER_MONTH, "defLeanGain": R.PROJ_LEAN_GAIN_KG_PER_MONTH,
+        "bfFloor": R.ANCHORS[A["demo"]["sex"]]["bf_athletic"] - 3,
+    }
+    # --- comparaison par sport (superposition sur les jauges) ---
+    _sex = A["demo"]["sex"]
+    _ratio = R.ALMI_FFMI_RATIO[_sex]
+    _sports = {}
+    for s in R.SPORTS:
+        d = s[_sex]
+        _sports[s["key"]] = {
+            "label": s["en"] if lang == "en" else s["fr"],
+            "bf": d["bf"], "ffmi": d["ffmi"],
+            "almi": [round(x * _ratio, 1) for x in d["ffmi"]],
+            "impact": s["impact"],
+        }
+    cfg["sports"] = _sports
+    cfg["sportScales"] = {"bf": list(R.ANCHORS[_sex]["bf_scale"]),
+                          "ffmi": list(R.ANCHORS[_sex]["ffmi_scale"]),
+                          "almi": list(R.ANCHORS[_sex]["almi_scale"])}
+    cfg["impactLbl"] = {k: [(v[1] if lang == "en" else v[0]), (v[3] if lang == "en" else v[2])]
+                        for k, v in R.BMD_IMPACT.items()}
+    if mb:
+        cfg.update({
+            "weight": A["demo"]["weight_kg"], "bmr": mb["bmr"], "ffm": mb["ffm_kg"],
+            "activity": {k: v for k, _, v in R.ACTIVITY},
+            "activityLab": {k: _tl(lab) for k, lab, _ in R.ACTIVITY},
+            "goalAdj": {k: v for k, _, v in R.GOALS},
+            "goalLab": {k: _tl(lab) for k, lab, _ in R.GOALS},
+            "proteinBasis": R.PROTEIN_BASIS,
+            "protFFM": R.PROTEIN_G_PER_KG_FFM, "protBW": R.PROTEIN_G_PER_KG_BW,
+            "mpsPerKg": R.PROTEIN_PER_MEAL_G_PER_KG,
+            "trainingFat": {k: v for k, _, v in R.TRAINING},
+            "rhythm": {k: v for k, _, v in R.RHYTHM},
+            "fiberPer1000": R.FIBER_G_PER_1000KCAL,
+        })
+    return f'''<script>
+const CFG = {_json.dumps(cfg)};
+const EN = !!CFG.en;
+function $(id){{return document.getElementById(id);}}
+function nf(x, n){{ const s = (n==null) ? String(x) : Number(x).toFixed(n); return EN ? s : s.replace('.', ','); }}
+
+function renumber(){{
+  const secs = [...document.querySelectorAll('section')].filter(s => !s.classList.contains('hidden'));
+  let n = 1;
+  for (const s of secs){{
+    const idx = s.querySelector('.sec-head .idx');
+    if (idx){{ idx.textContent = String(n).padStart(2,'0'); n++; }}
+  }}
+}}
+
+function _ovVal(id){{ const el=$(id); if(!el) return NaN; const v=parseFloat(el.value); return (!isNaN(v)&&v>0)?v:NaN; }}
+function computeNutrition(){{
+  if(!$('nut-goal')) return;
+  const goal = $('nut-goal').value, act = $('nut-activity').value, meals = +$('nut-meals').value;
+  const training = $('nut-training') ? $('nut-training').value : 'mixte';
+  const rhythm = $('nut-rhythm') ? $('nut-rhythm').value : 'modere';
+  const tdee = Math.round(CFG.bmr * CFG.activity[act]);
+  const rm = CFG.rhythm[rhythm] || {{deficit:-0.20, surplus:0.10}};
+  const gadj = goal==='deficit' ? rm.deficit : (goal==='surplus' ? rm.surplus : 0);
+  const kcalTarget = Math.round(tdee * (1 + gadj));
+  const useFFM = (CFG.proteinBasis === 'ffm' && CFG.ffm);
+  const base = useFFM ? CFG.ffm : CFG.weight;
+  // surcharges : grammes forcés > g/kg saisi > défaut par objectif
+  const ovP=_ovVal('ov-prot'), ovC=_ovVal('ov-carb'), ovF=_ovVal('ov-fat'), pgk=_ovVal('nut-pgk');
+  const protein = !isNaN(ovP) ? Math.round(ovP)
+                : Math.round(base * (!isNaN(pgk) ? pgk : (useFFM?CFG.protFFM[goal]:CFG.protBW[goal])));
+  const fatPct = CFG.trainingFat[training] || 35;
+  const fat = !isNaN(ovF) ? Math.round(ovF) : Math.round(kcalTarget * fatPct/100/9);
+  const carbs = !isNaN(ovC) ? Math.round(ovC) : Math.max(0, Math.round((kcalTarget - protein*4 - fat*9)/4));
+  const kp = protein*4, kc = carbs*4, kf = fat*9, kcal = kp+kc+kf, tot = Math.max(1, kcal);
+  const forced = (!isNaN(ovP)||!isNaN(ovC)||!isNaN(ovF));
+  if($('tdee')) $('tdee').textContent = tdee;
+  if($('tdee-sub')) $('tdee-sub').textContent = (EN?'BMR × activity (':'BMR × activité (') + CFG.activityLab[act].split(' ')[0].toLowerCase() + ')';
+  if($('kcal-target')){{
+    $('kcal-target').textContent = kcal;
+    $('nut-goal-lab').textContent = '(' + CFG.goalLab[goal].split(' ')[0].toLowerCase() + (forced?(EN?', forced':', forcé'):'') + ')';
+    const diff = kcal - tdee;
+    $('kcal-sub').textContent = (diff===0?(EN?'= energy expenditure':'= dépense énergétique'):(diff>0?'+':'')+diff+(EN?' kcal vs expenditure':' kcal vs dépense'));
+    const perKg = (protein/base);
+    $('m-prot').textContent = protein; $('m-prot-kg').textContent = nf(perKg,1);
+    $('m-prot-kcal').textContent = kp;
+    $('m-carb').textContent = carbs; $('m-carb-kcal').textContent = kc;
+    $('m-fat').textContent = fat; $('m-fat-kcal').textContent = kf;
+    const pp=Math.round(kp/tot*100), pc=Math.round(kc/tot*100), pf=100-pp-pc;
+    $('macrobar').innerHTML =
+      '<div class="mseg" style="width:'+pp+'%;background:var(--muscle)">P '+pp+'%</div>'+
+      '<div class="mseg" style="width:'+pc+'%;background:var(--metab)">'+(EN?'C ':'G ')+pc+'%</div>'+
+      '<div class="mseg" style="width:'+pf+'%;background:var(--warn)">'+(EN?'F ':'L ')+pf+'%</div>';
+    $('pct-prot').textContent = protein+' g'; $('pct-carb').textContent = carbs+' g'; $('pct-fat').textContent = fat+' g';
+    if($('fat-note')){{
+      const out = pf<30 || pf>40;
+      const trLbl = EN ? ({{cardio:'cardio', mixte:'mixed', muscu:'strength'}}[training] || training) : training;
+      $('fat-note').textContent = (EN?'Fat ≈ ':'Lipides ≈ ')+pf+(EN?'% of kcal':' % des kcal') + (out ? (EN?' — outside the 30–40% band (override)':' — hors fourchette 30–40 % (surcharge)') : (EN?' (target ':' (cible ')+fatPct+(EN?'% · ':' % · ')+trLbl+')');
+      $('fat-note').style.color = out ? 'var(--warn)' : 'var(--muted)';
+    }}
+    if($('fiber-val')) $('fiber-val').textContent = Math.round(kcal * CFG.fiberPer1000 / 1000);
+  }}
+  if($('meals-container')){{
+    const perK = Math.round(kcal/meals), perP = Math.round(protein/meals);
+    const mpsMin = Math.round(CFG.weight * CFG.mpsPerKg);
+    let html='';
+    for(let i=1;i<=meals;i++){{
+      html += '<div class="meal"><div class="mn">'+(EN?'Meal ':'Repas ')+i+'</div>'+
+        '<div class="mk2">'+perK+' <span style="font-size:12px;color:var(--muted)">kcal</span></div>'+
+        '<div class="mp">'+(EN?'Protein ':'Protéines ')+'<b>'+perP+' g</b></div></div>';
+    }}
+    $('meals-container').innerHTML = html;
+    const ok = perP >= mpsMin;
+    $('mps-note').innerHTML = '<div class="tag-note '+(ok?'good':'')+'"><span>'+(ok?'✓':'⚠')+'</span><div>'+
+      (ok
+        ? (EN
+            ? '<b>'+perP+' g protein per meal</b> — above the ~'+mpsMin+' g ('+nf(CFG.mpsPerKg)+' g/kg) threshold that maximises muscle protein synthesis at each meal.'
+            : '<b>'+perP+' g de protéines par repas</b> — au-dessus du seuil de ~'+mpsMin+' g ('+nf(CFG.mpsPerKg)+' g/kg) qui maximise la synthèse musculaire à chaque prise.')
+        : (EN
+            ? '<b>'+perP+' g per meal</b> is below the optimal ~'+mpsMin+' g. Combine into fewer meals or raise intake to better stimulate muscle.'
+            : '<b>'+perP+' g par repas</b> est sous le seuil optimal de ~'+mpsMin+' g. Regroupez sur moins de repas ou augmentez l\\'apport pour mieux stimuler le muscle.'))+
+      '</div></div>';
+  }}
+}}
+
+function fmtDate(d){{
+  return d.toLocaleDateString(EN?'en-GB':'fr-CH', {{month:'long', year:'numeric'}});
+}}
+function computeProjector(){{
+  if(!$('proj-fat-date')) return;
+  const today = new Date();
+  // masse grasse
+  const tBf = parseFloat($('proj-bf').value);
+  const cBf = CFG.curBF;
+  const fatLine = $('proj-fat-rate'), fatDate = $('proj-fat-date'), fatCur = $('proj-fat-cur');
+  fatCur.textContent = (cBf!=null?nf(cBf):'—') + ' % → ' + (isNaN(tBf)?'—':nf(tBf)) + ' %';
+  if(cBf!=null && !isNaN(tBf) && tBf < cBf){{
+    const measured = (CFG.velFat!=null && CFG.velFat < -0.05);
+    const rate = measured ? -CFG.velFat : CFG.defFatLoss;
+    const months = (cBf - tBf) / rate;
+    const d = new Date(today); d.setMonth(d.getMonth()+Math.round(months));
+    fatDate.textContent = fmtDate(d);
+    fatLine.textContent = '≈ ' + nf(months,1) + (EN?' months · ':' mois · ') + nf(rate,1) + (EN?' %/mo (':' %/mois (') + (measured?(EN?'measured':'mesurée'):(EN?'estimated':'estimée')) + ')';
+  }} else {{
+    fatDate.textContent = cBf!=null && !isNaN(tBf) && tBf>=cBf ? (EN?'target reached':'cible atteinte') : '—';
+    fatLine.textContent = EN?'set a target below current':'définir une cible inférieure à l\\'actuel';
+  }}
+  // masse maigre
+  const tLean = parseFloat($('proj-lean').value);
+  const cLean = CFG.curLean;
+  const leanLine = $('proj-lean-rate'), leanDate = $('proj-lean-date'), leanCur = $('proj-lean-cur');
+  leanCur.textContent = (cLean!=null?nf(cLean):'—') + ' kg → ' + (isNaN(tLean)?'—':nf(tLean)) + ' kg';
+  if(cLean!=null && !isNaN(tLean) && tLean > cLean){{
+    const measured = (CFG.velLean!=null && CFG.velLean > 0.02);
+    const rate = measured ? CFG.velLean : CFG.defLeanGain;
+    const months = (tLean - cLean) / rate;
+    const d = new Date(today); d.setMonth(d.getMonth()+Math.round(months));
+    leanDate.textContent = fmtDate(d);
+    leanLine.textContent = '≈ ' + nf(months,1) + (EN?' months · +':' mois · +') + nf(rate,2) + (EN?' kg/mo (':' kg/mois (') + (measured?(EN?'measured':'mesurée'):(EN?'estimated':'estimée')) + ')';
+  }} else {{
+    leanDate.textContent = cLean!=null && !isNaN(tLean) && tLean<=cLean ? (EN?'target reached':'cible atteinte') : '—';
+    leanLine.textContent = EN?'set a target above current':'définir une cible supérieure à l\\'actuel';
+  }}
+}}
+
+function computeBone(){{
+  const blk = $('bonedx-block'); if(!blk) return;
+  let basis, basisLbl;
+  if(CFG.sex === 'M'){{ basis = CFG.age >= 50 ? 'T' : 'Z'; }}
+  else {{ const m = $('dx-meno'); basis = (m ? m.value : (CFG.age>=51?'post':'pre')) === 'post' ? 'T' : 'Z'; }}
+  basisLbl = basis === 'T' ? (EN?'T-score (WHO)':'T-score (OMS)') : (EN?'Z-score (vs age)':'Z-score (vs âge)');
+  const sites = EN
+    ? [['Lumbar L1–L4','dx-spine'], ['Femoral neck','dx-neck'], ['Total hip','dx-hip']]
+    : [['Rachis L1–L4','dx-spine'], ['Col fémoral','dx-neck'], ['Hanche totale','dx-hip']];
+  const rows = [];
+  for(const [lab,id] of sites){{
+    const t = parseFloat($(id+'-t').value), z = parseFloat($(id+'-z').value);
+    const v = basis === 'T' ? t : z;
+    if(!isNaN(v)) rows.push({{lab, v, t, z}});
+  }}
+  if(!rows.length){{ blk.classList.add('hidden'); renumber(); return; }}
+  blk.classList.remove('hidden');
+  rows.sort((a,b)=>a.v-b.v);
+  const low = rows[0];
+  let verdict, cls;
+  if(basis === 'T'){{
+    if(low.v <= -2.5){{verdict=EN?'Osteoporosis':'Ostéoporose'; cls='risk';}}
+    else if(low.v < -1.0){{verdict=EN?'Osteopenia':'Ostéopénie'; cls='warn';}}
+    else {{verdict=EN?'Normal density':'Densité normale'; cls='good';}}
+  }} else {{
+    if(low.v <= -2.0){{verdict=EN?'Below the range expected for age':'Sous la fourchette attendue pour l\\'âge'; cls='warn';}}
+    else {{verdict=EN?'Within the range expected for age':'Dans la fourchette attendue pour l\\'âge'; cls='good';}}
+  }}
+  const fmt = x => isNaN(x) ? '—' : (x>0?'+':'') + nf(x);
+  let tbl = '<div class="since-grid">';
+  for(const r of rows){{
+    const isLow = (r === low);
+    tbl += '<div class="since-row"><span class="sl">'+r.lab+(isLow?' <span style=\\'font-family:var(--font-mono);font-size:10px;color:var(--muted)\\'>· '+(EN?'deciding site':'site déterminant')+'</span>':'')+'</span>'+
+      '<span class="sv">T '+fmt(r.t)+' · Z '+fmt(r.z)+'</span>'+
+      '<span class="delta-chip '+(isLow?cls:'neutral')+'">'+basis+' '+fmt(r.v)+'</span></div>';
+  }}
+  tbl += '</div>';
+  $('bonedx-verdict').innerHTML = '<span class="delta-chip '+cls+'" style="min-width:0">'+verdict+'</span>'+
+    '<span style="font-size:12.5px;color:var(--ink-2);margin-left:10px">'+(EN?'basis: ':'base : ')+basisLbl+(EN?' · lowest site (':' · sur le site le plus bas (')+low.lab+')</span>';
+  $('bonedx-rows').innerHTML = tbl;
+}}
+
+function scalePos(v, lo, hi){{ return Math.max(2, Math.min(98, (v-lo)/(hi-lo)*100)); }}
+function computeSport(){{
+  const sel = $('cp-sport');
+  const key = sel ? sel.value : '';
+  const s = key ? CFG.sports[key] : null;
+  const units = {{bf:'%', ffmi:' kg/m²', almi:' kg/m²'}};
+  for(const m of ['bf','ffmi','almi']){{
+    const g=$('gauge-'+m), band=$('sb-'+m), mk=$('sm-'+m), lbl=$('sc-'+m);
+    if(!g||!band||!mk) continue;
+    if(!s || !CFG.sportScales || !CFG.sportScales[m]){{ g.classList.remove('has-sport'); continue; }}
+    const sc=CFG.sportScales[m], v=s[m];
+    const pLo=scalePos(v[0],sc[0],sc[1]), pHi=scalePos(v[2],sc[0],sc[1]), pMed=scalePos(v[1],sc[0],sc[1]);
+    band.style.left=pLo+'%'; band.style.width=Math.max(0,pHi-pLo)+'%';
+    mk.style.left=pMed+'%';
+    if(lbl){{
+      const dec=(m==='bf')?0:1;
+      lbl.textContent=s.label+' · '+(EN?'median ':'médiane ')+nf(v[1],dec)+units[m]+
+        (EN?' (25–75th pct, competitive)':' (25–75e pct, compétitif)');
+    }}
+    g.classList.add('has-sport');
+  }}
+  const bn=$('sport-bone-note');
+  if(bn){{
+    if(!s){{ bn.hidden=true; }}
+    else {{ const il=CFG.impactLbl[s.impact];
+      bn.innerHTML='<b>'+s.label+'</b> — '+(EN?'bone loading: ':'sollicitation osseuse : ')+il[0]+' · '+il[1]+'.';
+      bn.hidden=false; }}
+  }}
+  // statuts (pastilles) sensibles au sport : muscle (ALMI) et masse grasse
+  if(!s){{ restorePill('st-muscle'); restorePill('st-bf'); }}
+  else {{
+    const a=CFG.curALMI, ab=s.almi;
+    if(a!=null && ab){{
+      if(a < ab[0]) setPill('st-muscle','warn', EN?'BELOW SPORT':'SOUS LE SPORT');
+      else if(a <= ab[2]) setPill('st-muscle','good', EN?'SPORT LEVEL':'NIVEAU SPORT');
+      else setPill('st-muscle','good', EN?'ABOVE SPORT':'AU-DESSUS');
+    }}
+    const bf=CFG.curBF, bb=s.bf;
+    if(bf!=null && bb){{
+      if(bf > bb[2]) setPill('st-bf','warn', EN?'HIGH / SPORT':'ÉLEVÉ / SPORT');
+      else if(bf >= bb[0]) setPill('st-bf','good', EN?'SPORT LEVEL':'NIVEAU SPORT');
+      else setPill('st-bf','good', EN?'VERY LEAN':'TRÈS SEC');
+    }}
+  }}
+}}
+function setPill(id, tone, label){{
+  const el=$(id); if(!el) return;
+  el.className='status '+tone;
+  el.innerHTML='<span class="d"></span>'+label;
+}}
+function restorePill(id){{
+  const el=$(id); if(!el) return;
+  el.className='status '+(el.dataset.tone0||'good');
+  el.innerHTML='<span class="d"></span>'+(el.dataset.label0||'');
+}}
+
+function bindToggles(){{
+  const sp=$('cp-sport'); if(sp) sp.addEventListener('change', computeSport);
+  document.querySelectorAll('.cp-check input[data-toggle]').forEach(cb => {{
+    cb.addEventListener('change', () => {{
+      document.querySelectorAll('section[data-mod="'+cb.dataset.toggle+'"]').forEach(s =>
+        s.classList.toggle('hidden', !cb.checked));
+      renumber();
+    }});
+  }});
+  ['nut-goal','nut-activity','nut-meals','nut-training','nut-rhythm'].forEach(id => {{
+    const el = $(id); if(el) el.addEventListener('change', computeNutrition);
+  }});
+  ['ov-prot','ov-carb','ov-fat','nut-pgk'].forEach(id => {{
+    const el = $(id); if(el) el.addEventListener('input', computeNutrition);
+  }});
+  ['proj-bf','proj-lean'].forEach(id => {{
+    const el = $(id); if(el) el.addEventListener('input', computeProjector);
+  }});
+  ['dx-spine-t','dx-spine-z','dx-neck-t','dx-neck-z','dx-hip-t','dx-hip-z','dx-meno'].forEach(id => {{
+    const el = $(id); if(el) el.addEventListener('input', computeBone);
+    if(el) el.addEventListener('change', computeBone);
+  }});
+}}
+
+function initProjectorDefaults(){{
+  if($('proj-bf') && CFG.curBF!=null && !$('proj-bf').value)
+    $('proj-bf').value = Math.max(CFG.bfFloor, Math.round((CFG.curBF-3)*10)/10);
+  if($('proj-lean') && CFG.curLean!=null && !$('proj-lean').value)
+    $('proj-lean').value = Math.round((CFG.curLean+2)*10)/10;
+}}
+
+document.addEventListener('DOMContentLoaded', () => {{
+  bindToggles(); initProjectorDefaults(); computeNutrition(); computeProjector(); computeBone(); computeSport(); renumber();
+}});
+</script>'''
+
+
+def render(A: dict, img_skeletal=None, img_thermal=None) -> str:
+    global _LANG
+    _LANG = A.get("lang", "fr")
+    with open(_STYLE, encoding="utf-8") as f:
+        css = f.read()
+    name = A["demo"]["name"] or "Client"
+    subtitle = ("Généré automatiquement depuis l'export Hologic<br>"
+                + (f'{A["n_exams"]} examens · suivi longitudinal' if A["n_exams"] > 1
+                   else "Premier examen (baseline)"))
+    nutri = ""
+    if A.get("metabolism"):
+        nutri = _metabolism(A) + _nutrition(A) + _meals(A)
+    proj = _projector(A) if (A["snap"].get("bf_pct") and A["snap"].get("lean_g")) else ""
+    script = _script(A)
+
+    body = "".join([
+        _header(A, subtitle),
+        _patient(A),
+        _coach_panel(A),
+        _hero(A),
+        _composition(A, img_skeletal, img_thermal),
+        _since(A),
+        _muscle(A),
+        _fat(A),
+        _bone(A),
+        _bone_dx(A),
+        nutri,
+        _hydra(A),
+        _reco(A),
+        proj,
+        _trends_section(A),
+        _interp_section(A),
+        _method(A),
+    ])
+    lang = A.get("lang", "fr")
+    title = "Body Composition DXA 2.0" if lang == "en" else "Bilan Corporel DXA 2.0"
+    html_doc = f'''<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
+<title>{title} — {esc(name)}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>{css}</style></head><body><div class="wrap">{body}</div>
+<button class="pdf-fab no-print" onclick="window.print()" title="PDF">🖨 Exporter en PDF</button>
+{script}</body></html>'''
+    return i18n.translate(html_doc, lang)
