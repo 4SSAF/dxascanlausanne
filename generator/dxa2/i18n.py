@@ -63,6 +63,9 @@ PHRASES = {
         "Summary up top: the key message first, the detail after.",
     "Références féminines (NHANES + cohortes récentes).": "Female references (NHANES + recent cohorts).",
     "Références masculines (NHANES + cohortes récentes).": "Male references (NHANES + recent cohorts).",
+    "Références européennes féminines (Hologic).": "European female references (Hologic).",
+    "Références européennes masculines (Hologic).": "European male references (Hologic).",
+    "21–31 sain": "21–31 healthy", "38+ élevé": "38+ high",
     "64,9 kg répartis en trois compartiments — la lecture que l'IMC ne donne pas.":
         "split into three compartments — the reading BMI can't give.",
     "en trois compartiments — bien au-delà de l'IMC.": "in three compartments — well beyond BMI.",

@@ -232,6 +232,7 @@ def _hero(A):
           <div class="val" style="color:{color}">≈ {age}</div></div>'''
 
     refs = "féminines" if d["sex"] == "F" else "masculines"
+    refs_note = f"Références européennes {refs} (Hologic)."
     yrs_u = "yrs<br>biological" if en else "ans<br>biologiques"
     civil_lab = f"chrono {d['age']}" if en else f"civil {d['age']}"
     bio_lab = f"bio {b['composite']}"
@@ -239,7 +240,7 @@ def _hero(A):
     wtxt = f"{int(w['metabolic']*100)}/{int(w['muscle']*100)}/{int(w['bone']*100)}"
     return f'''<section data-mod="bioage">
     <div class="sec-head"><span class="idx">01</span><h2>Âge biologique &amp; score global</h2>
-      <span class="note">Références {refs} (NHANES + cohortes récentes).</span></div>
+      <span class="note">{refs_note}</span></div>
     <div class="hero"><div class="hero-in">
       <div class="hero-left">
         <div class="eyebrow">{_t(A, "Âge biologique DXA — estimation", "DXA biological age — estimate")}</div>
@@ -608,14 +609,20 @@ def _method(A):
           = {w['metabolic']:.2f}·({b['metabolic']}) + {w['muscle']:.2f}·({b['muscle']}) + {w['bone']:.2f}·({b['bone']})<br>
           ≈ {b['composite']} yrs &nbsp;(vs {d['age']} chrono)''')
     src_pop = _t(A,
-                 f"Natif Hologic : NHANES/BMDCS 2012 ({refs_sex}). Enrichi : Pratt 2025 (valeurs DXA par âge), "
-                 "Meredith-Jones 2021 (seuils TAV), Radecka 2025 / Yamada 2021 (ALMI), Hew-Butler 2025 (% masse grasse athlète). "
-                 "Comparaison par sport (indicative, cohortes compétitives) : Santos 2014 (percentiles DXA par sport), "
-                 "Jagim 2024 (FFMI), Hew-Butler 2025 (% masse grasse), Tenforde 2018 (impact osseux).",
-                 f"Native Hologic: NHANES/BMDCS 2012 ({refs_sex}). Enriched: Pratt 2025 (DXA values by age), "
-                 "Meredith-Jones 2021 (VAT thresholds), Radecka 2025 / Yamada 2021 (ALMI), Hew-Butler 2025 (athlete body-fat %). "
-                 "Sport comparison (indicative, competitive cohorts): Santos 2014 (DXA percentiles by sport), "
-                 "Jagim 2024 (FFMI), Hew-Butler 2025 (body-fat %), Tenforde 2018 (bone impact).")
+                 "Références de composition <b>européennes, appariées Hologic</b> : Radecka 2025 (adultes polonais, "
+                 "Hologic ; ALMI/FFMI) &amp; seuils <b>EWGSOP2</b>, Coin 2008/2013 (Italie ; FFMI/% masse grasse), "
+                 "Pratt 2025 (trajectoires), Hew-Butler 2025 (plancher gras athlète). <b>TAV</b> : Swainson 2019 (UK) / "
+                 "LEAD 2020, exprimé en surface et recalibré Hologic via <b>OsteoLaus</b> (Vendrami 2023, Lausanne). "
+                 "La DMO T-score native vient de la base Hologic (NHANES III, fémur), fixée à l'acquisition. "
+                 "Comparaison par sport (indicative, cohortes compétitives) : Santos 2014, Jagim 2024, Tenforde 2018 (impact osseux). "
+                 "⚠ Les valeurs GE-Lunar ne s'appliquent pas directement à des mesures Hologic.",
+                 "<b>European, Hologic-matched</b> composition references: Radecka 2025 (Polish adults, Hologic; "
+                 "ALMI/FFMI) &amp; <b>EWGSOP2</b> cut-offs, Coin 2008/2013 (Italy; FFMI/body-fat %), Pratt 2025 "
+                 "(trajectories), Hew-Butler 2025 (athlete fat floor). <b>VAT</b>: Swainson 2019 (UK) / LEAD 2020, "
+                 "expressed as area and Hologic-recalibrated via <b>OsteoLaus</b> (Vendrami 2023, Lausanne). "
+                 "The native BMD T-score comes from the Hologic database (NHANES III, femur), fixed at acquisition. "
+                 "Sport comparison (indicative, competitive cohorts): Santos 2014, Jagim 2024, Tenforde 2018 (bone impact). "
+                 "⚠ GE-Lunar values do not apply directly to Hologic measurements.")
     src_nut = _t(A,
                  "<b>BMR</b> Cunningham 1991 (500 + 22·masse maigre). <b>DEJ</b> = BMR × facteur d'activité (PAL, Harris-Benedict). "
                  "<b>Calories</b> déficit −20 % / surplus +10 %. <b>Protéines</b> Morton 2018 (1,6–2,2 g/kg) ; Helms 2014 "
@@ -625,6 +632,28 @@ def _method(A):
                  "<b>Calories</b> deficit −20% / surplus +10%. <b>Protein</b> Morton 2018 (1.6–2.2 g/kg); Helms 2014 "
                  "(2.3–3.1 g/kg lean mass when cutting). <b>Fat</b> 30–40% of kcal by training (hormonal min ~0.6 g/kg). "
                  "<b>Per-meal split</b> ~0.4 g protein/kg/meal (Moore 2015; Schoenfeld &amp; Aragon 2018). Energy 4/4/9 (Atwater).")
+    U = "https://consensus.app/papers/details/"
+    refs_ol = _t(A,
+        f'''<ol class="refs">
+          <li>Lian et al. <a href="{U}71eb54ae63975314a60c657f8a00fdef/">Biomarqueur d'âge par composition (DXA, deep-learning)</a>. <i>Comm. Medicine</i>, 2025.</li>
+          <li>Radecka et al. <a href="{U}d0d1468b4a455df4adc33803cf731259/">Normes ALMI/FFMI — adultes polonais (Hologic)</a>. <i>Aging</i>, 2025.</li>
+          <li>Coin et al. <a href="{U}a229a7ebc4265bdcbf13cf2633e02eb8/">Références FFM/FM — adultes italiens</a>. <i>Clin. Nutrition</i>, 2008.</li>
+          <li>Coin et al. <a href="{U}de852a535b195773b990a6eb2c683938/">Sarcopénie : ASMM (Italie) &amp; EWGSOP2</a>. <i>JAMDA</i>, 2013.</li>
+          <li>Pratt et al. <a href="{U}0377acb63ed154798153e56d92631aa5/">Trajectoires DXA de composition (âge adulte)</a>. <i>Clin. Nutrition</i>, 2025.</li>
+          <li>Swainson et al. <a href="{U}4e8b93b6628f54e1a330489b2f57b613/">Intervalles de référence du TAV (DXA)</a>. <i>Int. J. Obesity</i>, 2019.</li>
+          <li>Vendrami et al. <a href="{U}bb73e299c3ae5c22a5b3049eb86bef18/">OsteoLaus — cross-calibration Hologic / Lunar (Lausanne)</a>. <i>J. Clin. Densitometry</i>, 2023.</li>
+          <li>Hew-Butler et al. <a href="{U}1169ecbb7dcd5936b80916645d06bf58/">Plancher de masse grasse (athlète)</a>. <i>J. Clin. Densitometry</i>, 2025.</li>
+        </ol>''',
+        f'''<ol class="refs">
+          <li>Lian et al. <a href="{U}71eb54ae63975314a60c657f8a00fdef/">Body-composition age biomarker (DXA, deep-learning)</a>. <i>Comm. Medicine</i>, 2025.</li>
+          <li>Radecka et al. <a href="{U}d0d1468b4a455df4adc33803cf731259/">ALMI/FFMI norms — Polish adults (Hologic)</a>. <i>Aging</i>, 2025.</li>
+          <li>Coin et al. <a href="{U}a229a7ebc4265bdcbf13cf2633e02eb8/">FFM/FM reference values — Italian adults</a>. <i>Clin. Nutrition</i>, 2008.</li>
+          <li>Coin et al. <a href="{U}de852a535b195773b990a6eb2c683938/">Sarcopenia: ASMM (Italy) &amp; EWGSOP2</a>. <i>JAMDA</i>, 2013.</li>
+          <li>Pratt et al. <a href="{U}0377acb63ed154798153e56d92631aa5/">DXA body-composition trajectories (adult age)</a>. <i>Clin. Nutrition</i>, 2025.</li>
+          <li>Swainson et al. <a href="{U}4e8b93b6628f54e1a330489b2f57b613/">VAT reference intervals (DXA)</a>. <i>Int. J. Obesity</i>, 2019.</li>
+          <li>Vendrami et al. <a href="{U}bb73e299c3ae5c22a5b3049eb86bef18/">OsteoLaus — Hologic / Lunar cross-calibration (Lausanne)</a>. <i>J. Clin. Densitometry</i>, 2023.</li>
+          <li>Hew-Butler et al. <a href="{U}1169ecbb7dcd5936b80916645d06bf58/">Athlete fat-mass floor</a>. <i>J. Clin. Densitometry</i>, 2025.</li>
+        </ol>''')
     return f'''<section>
     <div class="sec-head"><span class="idx">08</span><h2>Méthode, références &amp; limites</h2></div>
     <div class="grid g-2">
@@ -637,14 +666,7 @@ def _method(A):
         <p>{src_nut}</p>
       </div>
       <div class="card method"><h4 style="margin-top:0">Références scientifiques</h4>
-        <ol class="refs">
-          <li>Lian et al. <a href="https://consensus.app/papers/details/71eb54ae63975314a60c657f8a00fdef/">Deep-learning body-composition ageing biomarker (DXA)</a>. <i>Comm. Medicine</i>, 2025.</li>
-          <li>Fermín-Martínez et al. <a href="https://consensus.app/papers/details/9a3bf2c8337e56ef8776aa165ff70c0e/">AnthropoAge</a>. <i>Aging Cell</i>, 2021.</li>
-          <li>Pratt et al. <a href="https://consensus.app/papers/details/0377acb63ed154798153e56d92631aa5/">Valeurs de référence DXA (âge adulte)</a>. <i>Clin. Nutrition</i>, 2025.</li>
-          <li>Meredith-Jones et al. <a href="https://consensus.app/papers/details/59d49981d6295acf86622a334f853972/">Seuils de graisse viscérale</a>. <i>Int. J. Obesity</i>, 2021.</li>
-          <li>Radecka et al. <a href="https://consensus.app/papers/details/d0d1468b4a455df4adc33803cf731259/">Normes ALMI/FFMI (Hologic)</a>. <i>Aging</i>, 2025.</li>
-          <li>Hew-Butler et al. <a href="https://consensus.app/papers/details/1169ecbb7dcd5936b80916645d06bf58/">Plancher de masse grasse (athlète)</a>. <i>J. Clin. Densitometry</i>, 2025.</li>
-        </ol></div></div>
+        {refs_ol}</div></div>
     <p class="disclaimer"><b>Avertissement.</b> L'« âge biologique DXA » est un indice pédagogique dérivé des mesures de
       composition corporelle et de populations de référence publiées ; ce n'est pas un diagnostic médical ni un biomarqueur
       validé cliniquement. Les images DXA ne sont pas destinées à un usage diagnostique. Toute interprétation clinique relève

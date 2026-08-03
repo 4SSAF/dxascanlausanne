@@ -2,16 +2,32 @@
 Références sexe-spécifiques, seuils et barèmes d'interprétation.
 
 ⚠️ Paramètres pédagogiques et CALIBRABLES par le coach (étape « figer le contenu »).
-Sources : NHANES/BMDCS (natif Hologic), Pratt 2025, Meredith-Jones 2021 (TAV),
-Radecka 2025 / Yamada 2021 (ALMI), Hew-Butler 2025 (% masse grasse athlète),
-Trexler 2017 (FFMI). Ne constitue pas un barème diagnostique.
+
+RÉFÉRENCES DE COMPOSITION : EUROPÉENNES, appariées au scanner Hologic.
+  · ALMI / FFMI : Radecka 2025 (adultes polonais, Hologic Horizon) ; seuils
+    EWGSOP2 (groupe de travail européen : bas < 7,0 H / 5,5 F kg/m²).
+  · FFMI / % masse grasse : Coin 2008 & 2013 (adultes italiens, Caucasiens).
+  · Trajectoires LM/FM/DMO : Pratt 2025. Plancher gras athlète : Hew-Butler 2025.
+  · TAV : Swainson 2019 (UK) & LEAD/Ofenheimer 2020 (cohortes européennes,
+    GE-Lunar) — seuils exprimés en SURFACE (portable entre appareils) et
+    recalibrés Hologic via OsteoLaus (Vendrami 2023, Lausanne).
+Note appareil : la DMO T-score « native » du rapport vient de la base du scanner
+  Hologic (NHANES III, fémur) — fixée à l'acquisition, non recalculable ici, et
+  déjà signalée « non diagnostique ». Les valeurs GE-Lunar ne s'appliquent pas
+  directement à des mesures Hologic (Hologic lit +~0,9 % de gras, ALM plus basse).
+Ne constitue pas un barème diagnostique.
 """
+
+REFERENCE_SET = "european_hologic"
 
 # Ancres physiologiques par sexe
 ANCHORS = {
     "M": dict(
-        vat_mass_thr=1000.0,   # g, seuil de risque cardiométabolique (<40 ans)
-        vat_area_thr=100.0,    # cm²
+        # TAV : seuil de risque exprimé surtout en SURFACE (~100 cm²), métrique la
+        # plus portable entre appareils. Réf. européennes Swainson 2019 (UK) /
+        # LEAD 2020 (GE-Lunar), recalibrées Hologic via OsteoLaus (Vendrami 2023).
+        vat_mass_thr=1000.0,   # g (lecture Hologic)
+        vat_area_thr=100.0,    # cm² — seuil cardiométabolique européen
         vat_area_max=200.0,    # borne d'échelle
         bf_athletic=13.0, bf_healthy_mid=18.0,
         bf_scale=(3.0, 35.0),
@@ -34,8 +50,10 @@ ANCHORS = {
         vat_area_max=160.0,
         bf_athletic=20.0, bf_healthy_mid=25.0,
         bf_scale=(10.0, 45.0),
-        bf_zones=[(10, 14, "warn"), (14, 21, "brand"), (21, 29, "good"), (29, 35, "warn"), (35, 45, "risk")],
-        bf_scale_labels=["10–13 essentiel", "14–20 athlète", "21–29 en forme", "32+ élevé"],
+        # plage « sain » alignée population européenne (Coin 2008 : jeunes femmes 26–35 %)
+        # et cohérente avec la logique de statut (SAIN ≤ 31 %).
+        bf_zones=[(10, 14, "warn"), (14, 21, "brand"), (21, 31, "good"), (31, 38, "warn"), (38, 45, "risk")],
+        bf_scale_labels=["10–13 essentiel", "14–20 athlète", "21–31 sain", "38+ élevé"],
         almi_median=6.1, almi_thr=5.5, almi_sd=0.8,
         almi_scale=(4.5, 8.0),
         almi_zones=[(4.5, 5.5, "risk"), (5.5, 6.1, "warn"), (6.1, 7.2, "good"), (7.2, 8.0, "brand")],
@@ -213,7 +231,7 @@ PROJ_LEAN_GAIN_KG_PER_MONTH = 0.3    # gain de masse maigre/mois (entraîné, su
 
 
 # Version du moteur (affichée en pied de rapport pour vérifier les mises à jour)
-VERSION = "4.0"
+VERSION = "4.1"
 VERSION_DATE = "2026-07"
 
 

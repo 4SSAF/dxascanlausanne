@@ -49,7 +49,9 @@ sortie porte un suffixe de langue (`…rapport2.fr.html` / `…rapport2.en.html`
 - **Instantané le plus récent** : pour chaque mesure, prend la valeur de l'examen
   le plus récent qui la porte (les indices peuvent dater d'une page différente).
 - **Âge biologique** : composite pondéré de trois sous-âges (métabolique / musculaire
-  / osseux), replacés sur des références **sexe-spécifiques**.
+  / osseux), replacés sur des références **européennes sexe-spécifiques, appariées
+  Hologic** (Radecka 2025, Coin 2008/2013, Pratt 2025 ; seuils EWGSOP2 ; TAV
+  Swainson/LEAD recalibré Hologic via OsteoLaus/Vendrami 2023, Lausanne).
 - **Adaptation automatique** : références homme/femme, mode « tendances » (≥ 2 scans)
   ou « baseline » (1 scan), détection d'asymétrie des bras, alerte RED-S pour un
   profil féminin mince, textes d'interprétation et actions priorisées.
