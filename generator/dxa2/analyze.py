@@ -1,0 +1,544 @@
+"""
+Moteur d'analyse : instantané parsé -> valeurs enrichies prêtes à afficher
+(âge biologique, barèmes de jauges, statuts, asymétrie, interprétation, tendances).
+"""
+from __future__ import annotations
+from . import references as R
+
+
+def _meter(value, scale, zones, scale_labels, ref=None):
+    """Construit la config d'une jauge."""
+    lo, hi = scale
+    return {
+        "value": value,
+        "marker": R.scale_pos(value, lo, hi),
+        "ref": R.scale_pos(ref, lo, hi) if ref is not None else None,
+        "zones": R.zones_to_widths(zones, lo, hi),
+        "labels": scale_labels,
+    }
+
+
+def _ffmi(snap, height_m):
+    if snap.get("lean_bmc_g") and height_m:
+        return round(snap["lean_bmc_g"] / 1000.0 / (height_m ** 2), 1)
+    return None
+
+
+def metabolism(snap, weight_kg):
+    """BMR (Cunningham 1991) à partir de la masse maigre (FFM) mesurée au DXA."""
+    ffm_g = snap.get("lean_bmc_g")
+    if ffm_g is None and snap.get("lean_g") and snap.get("bmc_g"):
+        ffm_g = snap["lean_g"] + snap["bmc_g"]
+    if not ffm_g:
+        return None
+    ffm = ffm_g / 1000.0
+    bmr = round(R.CUNNINGHAM["base"] + R.CUNNINGHAM["coef"] * ffm)
+    return {"ffm_kg": round(ffm, 1), "bmr": bmr, "weight_kg": weight_kg}
+
+
+def nutrition(bmr, weight_kg, ffm_kg=None, activity_key=None, goal_key=None,
+              meals=None, training_key=None, ov=None, rhythm_key=None, protein_gkg=None):
+    """Besoins caloriques + macros + répartition par repas.
+
+    - ajustement calorique = direction (objectif) × magnitude (rythme) ;
+    - lipides = % des kcal selon la pratique sportive (30–40 %) ;
+    - glucides = reste des kcal ;
+    - `protein_gkg` force la cible protéique (g/kg de la base) ;
+    - `ov` = surcharges manuelles {protein, carbs, fat} (g).
+    """
+    ov = ov or {}
+    act = dict((k, v) for k, _, v in R.ACTIVITY)[activity_key or R.ACTIVITY_DEFAULT]
+    goal_key = goal_key or R.GOAL_DEFAULT
+    rhythm_key = rhythm_key or R.RHYTHM_DEFAULT
+    rmap = dict((k, v) for k, _, v in R.RHYTHM)[rhythm_key]
+    gadj = rmap["deficit"] if goal_key == "deficit" else (rmap["surplus"] if goal_key == "surplus" else 0.0)
+    training_key = training_key or R.TRAINING_DEFAULT
+    fat_pct = dict((k, v) for k, _, v in R.TRAINING)[training_key]
+    meals = meals or R.MEALS_DEFAULT
+    tdee = round(bmr * act)
+    kcal_target = round(tdee * (1 + gadj))
+
+    # base protéique (FFM ou poids)
+    use_ffm = R.PROTEIN_BASIS == "ffm" and ffm_kg
+    base = ffm_kg if use_ffm else weight_kg
+    if protein_gkg:
+        p_per_kg = protein_gkg
+    else:
+        p_per_kg = (R.PROTEIN_G_PER_KG_FFM if use_ffm else R.PROTEIN_G_PER_KG_BW)[goal_key]
+    protein = round(base * p_per_kg)
+    if ov.get("protein"):
+        protein = ov["protein"]
+    # lipides = % des kcal cible, sauf surcharge
+    fat = ov["fat"] if ov.get("fat") else round(kcal_target * fat_pct / 100.0 / R.KCAL["fat"])
+    # glucides = reste, sauf surcharge
+    if ov.get("carbs"):
+        carbs = ov["carbs"]
+    else:
+        carbs = max(0, round((kcal_target - protein * R.KCAL["prot"] - fat * R.KCAL["fat"]) / R.KCAL["carb"]))
+
+    kcal = protein * R.KCAL["prot"] + carbs * R.KCAL["carb"] + fat * R.KCAL["fat"]
+    per_meal_p = round(protein / meals)
+    mps_min = round(weight_kg * R.PROTEIN_PER_MEAL_G_PER_KG)
+    fiber = round(kcal * R.FIBER_G_PER_1000KCAL / 1000.0)
+    return {
+        "activity": activity_key or R.ACTIVITY_DEFAULT, "goal": goal_key, "meals": meals,
+        "training": training_key, "fat_pct_target": fat_pct, "rhythm": rhythm_key,
+        "tdee": tdee, "kcal_target": kcal_target, "kcal": kcal,
+        "protein": protein, "carbs": carbs, "fat": fat, "p_per_kg": p_per_kg, "fiber": fiber,
+        "kcal_p": protein * 4, "kcal_c": carbs * 4, "kcal_f": fat * 9,
+        "per_meal_p": per_meal_p, "mps_min": mps_min,
+        "per_meal_kcal": round(kcal / meals),
+    }
+
+
+def hydration(snap, weight_kg):
+    """Eau corporelle totale (depuis la masse maigre) + apport hydrique cible."""
+    lean_g = snap.get("lean_bmc_g") or snap.get("lean_g")
+    tbw = round((lean_g / 1000.0) * R.TBW_FFM_FRACTION, 1) if lean_g else None
+    water = round(weight_kg * R.WATER_ML_PER_KG / 1000.0, 1) if weight_kg else None
+    return {"tbw_l": tbw, "water_l": water}
+
+
+def training_reco(out):
+    """Recommandations d'entraînement rule-based, liées aux signaux détectés (FR/EN)."""
+    snap = out["snap"]; a = R.ANCHORS[out["demo"]["sex"]]
+    en = out.get("lang") == "en"
+    recs = []
+    muscle_low = snap.get("almi") is not None and snap["almi"] < a["almi_median"]
+    asym = out.get("arm_asym") and out["arm_asym"]["flag"]
+    if muscle_low:
+        recs.append(("Prioritise hypertrophy",
+                     "#1 lever here. 10–20 hard sets/muscle/week, 6–20 reps, close to failure RIR 1–3, "
+                     "each muscle 2×/week. Progressive overload week over week.") if en else
+                    ("Prioriser l'hypertrophie",
+                     "Levier n°1 ici. 10–20 séries dures/groupe musculaire/semaine, 6–20 répétitions, "
+                     "proximité de l'échec RIR 1–3, chaque muscle 2×/semaine. Surcharge progressive semaine après semaine."))
+    else:
+        recs.append(("Maintain muscle mass",
+                     "10–15 sets/muscle/week, RIR 1–3, frequency 2×/week, progressive overload.") if en else
+                    ("Entretenir la masse musculaire",
+                     "10–15 séries/groupe/semaine, RIR 1–3, fréquence 2×/semaine, surcharge progressive."))
+    if asym:
+        side = ("right" if out["arm_asym"]["bigger"] == "droit" else "left") if en else out["arm_asym"]["bigger"]
+        recs.append(("Correct the asymmetry",
+                     f"Unilateral work (dumbbells/cables) starting with the weaker side ({side} stronger), "
+                     "matched reps, 2–3×/week.") if en else
+                    ("Corriger l'asymétrie",
+                     f"Travail unilatéral (haltères/câbles) en démarrant par le côté faible ({side} plus fort), "
+                     "répétitions égalisées, 2–3×/semaine."))
+    recs.append(("Bone loading",
+                 "Include heavy loads (3–6 reps) and impacts (jumps, running): key stimulus to maintain/raise bone density.") if en else
+                ("Charge osseuse",
+                 "Inclure des charges lourdes (3–6 répétitions) et des impacts (sauts, course) : "
+                 "stimulus clé pour maintenir/augmenter la densité osseuse."))
+    if out.get("nutrition", {}).get("goal") == "deficit":
+        recs.append(("In a deficit: preserve muscle",
+                     "Keep resistance-training volume and intensity; cardio as a complement, not a replacement.") if en else
+                    ("En déficit : préserver le muscle",
+                     "Maintenir le volume et l'intensité de musculation ; le cardio en complément, pas en remplacement."))
+    return recs[:4]
+
+
+# ---------------------------------------------------------------------------
+# Âge biologique (heuristique transparente et calibrable)
+# ---------------------------------------------------------------------------
+def bio_age(demo, snap):
+    sex = demo["sex"]
+    a = R.ANCHORS[sex]
+    chrono = demo["age"]
+
+    # -- métabolique : TAV (primaire) + % masse grasse
+    dm = 0.0
+    parts_metab = []
+    if snap.get("vat_mass_g") is not None:
+        r = snap["vat_mass_g"] / a["vat_mass_thr"]
+        dm += (r - 0.5) * 8.0
+        parts_metab.append(f"TAV {snap['vat_mass_g']:.0f} g ({r*100:.0f}% du seuil)")
+    if snap.get("bf_pct") is not None:
+        dm += (snap["bf_pct"] - a["bf_healthy_mid"]) * 0.35
+        parts_metab.append(f"%MG {snap['bf_pct']:.1f}")
+    dm = R.clamp(dm, -9, 12)
+    metab = round(R.clamp(chrono + dm, 18, 90))
+
+    # -- musculaire : percentile ALMI pour l'âge, sinon ALMI vs médiane jeune
+    parts_mus = []
+    if snap.get("almi_am_pct") is not None:
+        dmu = (50 - snap["almi_am_pct"]) * 0.14
+        parts_mus.append(f"ALMI {snap.get('almi')} ({snap['almi_am_pct']:.0f}e perc. âge)")
+    elif snap.get("almi") is not None:
+        z = (snap["almi"] - a["almi_median"]) / a["almi_sd"]
+        dmu = -z * 4.0
+        parts_mus.append(f"ALMI {snap['almi']} vs médiane {a['almi_median']}")
+    else:
+        dmu = 0.0
+    dmu = R.clamp(dmu, -10, 12)
+    muscle = round(R.clamp(chrono + dmu, 18, 90))
+
+    # -- osseux : Z-score (sinon T-score)
+    z = snap.get("bmd_z")
+    if z is None:
+        z = snap.get("bmd_t")
+    if z is not None:
+        db = R.clamp(-z * 6.0, -8, 10)
+        bone = round(R.clamp(chrono + db, 18, 90))
+        parts_bone = [f"{'Z' if snap.get('bmd_z') is not None else 'T'}-score {z:+.1f}"]
+    else:
+        bone = chrono
+        parts_bone = ["indisponible"]
+
+    w = R.BIOAGE_WEIGHTS
+    composite = round(w["metabolic"] * metab + w["muscle"] * muscle + w["bone"] * bone)
+    return {
+        "composite": composite,
+        "metabolic": metab, "muscle": muscle, "bone": bone,
+        "delta": composite - chrono,
+        "weights": w,
+        "explain": {"metabolic": parts_metab, "muscle": parts_mus, "bone": parts_bone},
+    }
+
+
+# ---------------------------------------------------------------------------
+# Analyse complète
+# ---------------------------------------------------------------------------
+def analyze(data: dict, lang: str = "fr") -> dict:
+    demo = {k: data[k] for k in ("name", "age", "sex", "sex_label", "height_cm",
+                                 "weight_kg", "ethnicity", "dob")}
+    snap = data["snapshot"]
+    sex = demo["sex"]
+    a = R.ANCHORS[sex]
+    h_m = (demo["height_cm"] or 0) / 100.0
+
+    out = {"demo": demo, "snap": snap, "n_exams": data["n_exams"],
+           "latest_exam_date": data["latest_exam_date"], "lang": lang}
+
+    # dérivés
+    ffmi = _ffmi(snap, h_m)
+    out["ffmi"] = ffmi
+    out["bmi"] = snap.get("bmi") or (round(demo["weight_kg"] / (h_m ** 2), 1) if h_m else None)
+
+    # masse : parts pour la barre empilée
+    if snap.get("mass_g"):
+        m = snap["mass_g"]
+        out["mass"] = {
+            "total_kg": round(m / 1000, 1),
+            "lean_kg": round(snap["lean_g"] / 1000, 1),
+            "fat_kg": round(snap["fat_g"] / 1000, 1),
+            "bmc_kg": round(snap["bmc_g"] / 1000, 1),
+            "lean_pct": round(snap["lean_g"] / m * 100, 1),
+            "fat_pct": round(snap["fat_g"] / m * 100, 1),
+            "bmc_pct": round(snap["bmc_g"] / m * 100, 1),
+        }
+
+    # jauges
+    out["meters"] = {
+        "bf": _meter(snap.get("bf_pct"), a["bf_scale"], a["bf_zones"], a["bf_scale_labels"]),
+        "fmi": _meter(snap.get("fmi"), a["fmi_scale"], a["fmi_zones"], a["fmi_scale_labels"]),
+        "ffmi": _meter(ffmi, a["ffmi_scale"], a["ffmi_zones"], a["ffmi_scale_labels"]),
+        "almi": _meter(snap.get("almi"), a["almi_scale"], a["almi_zones"], a["almi_scale_labels"],
+                       ref=a["almi_median"]),
+        "bmd": _meter(snap.get("bmd_t"), R.BMD_SCALE, R.BMD_ZONES, R.BMD_SCALE_LABELS, ref=0.0),
+        "vat_area": _meter(snap.get("vat_area_cm2"), (0.0, a["vat_area_max"]),
+                           [(0, a["vat_area_thr"], "good"),
+                            (a["vat_area_thr"], a["vat_area_thr"] * 1.4, "warn"),
+                            (a["vat_area_thr"] * 1.4, a["vat_area_max"], "risk")],
+                           ["0", f"{a['vat_area_thr']:.0f} seuil élevé", "risque"]),
+    }
+
+    # base diagnostique osseuse (T pour ménopausée/≥50, sinon Z) — ISCD
+    out["bmd_basis"] = "T" if ((sex == "M" and demo["age"] >= 50)
+                               or (sex == "F" and demo["age"] >= 51)) else "Z"
+
+    # statuts (scorecards)
+    out["status"] = _statuses(snap, a, sex, out["bmd_basis"])
+
+    # âge biologique
+    out["bioage"] = bio_age(demo, snap)
+
+    # asymétrie des bras
+    rl = snap.get("regional_lean", {})
+    if rl.get("bras_g") and rl.get("bras_d"):
+        g, d = rl["bras_g"], rl["bras_d"]
+        hi, lo = max(g, d), min(g, d)
+        pct = (hi - lo) / lo * 100
+        out["arm_asym"] = {"pct": round(pct, 1),
+                           "bigger": "droit" if d >= g else "gauche",
+                           "flag": pct >= 10.0}
+    else:
+        out["arm_asym"] = None
+
+    # tendances
+    out["has_history"] = data["n_exams"] > 1 and len(data.get("bmd_history", [])) > 1
+    out["trends"] = _trends(data)
+    out["velocity"] = _velocity(data)
+    out["since_last"] = _since_last(data)
+    out["regional_bmd_prev"] = data.get("regional_bmd_prev")
+    out["regional_bmd_prev_date"] = data.get("regional_bmd_prev_date")
+
+    # métabolisme (BMR Cunningham) + nutrition par défaut
+    out["metabolism"] = metabolism(snap, demo["weight_kg"])
+    if out["metabolism"]:
+        out["nutrition"] = nutrition(out["metabolism"]["bmr"], demo["weight_kg"],
+                                     ffm_kg=out["metabolism"]["ffm_kg"])
+    else:
+        out["nutrition"] = None
+    out["hydration"] = hydration(snap, demo["weight_kg"])
+    out["training_reco"] = training_reco(out)
+
+    # interprétation + actions
+    out["interp"] = _interpret(out)
+
+    # méta VAT / seuils pour l'affichage
+    out["vat_mass_thr"] = a["vat_mass_thr"]
+    out["vat_ref_txt"] = f"~{'4' if sex=='M' else '6'}×"  # informatif, remplacé ci-dessous
+    if snap.get("vat_mass_g"):
+        ratio = a["vat_mass_thr"] / snap["vat_mass_g"]
+        out["vat_ref_txt"] = f"~{ratio:.0f}×"
+    return out
+
+
+def _statuses(snap, a, sex, bmd_basis="T"):
+    st = {}
+    # graisse viscérale
+    vm = snap.get("vat_mass_g")
+    if vm is not None:
+        if vm < a["vat_mass_thr"] * 0.5:
+            st["vat"] = ("good", "OPTIMAL")
+        elif vm < a["vat_mass_thr"]:
+            st["vat"] = ("warn", "CORRECT")
+        else:
+            st["vat"] = ("risk", "ÉLEVÉ")
+    # muscle (ALMI)
+    almi = snap.get("almi")
+    if almi is not None:
+        if almi < a["almi_thr"]:
+            st["muscle"] = ("risk", "FAIBLE")
+        elif almi < a["almi_median"]:
+            st["muscle"] = ("warn", "À DÉVELOPPER")
+        else:
+            st["muscle"] = ("good", "SOLIDE")
+    # os — vocabulaire selon la base diagnostique (T vs Z)
+    if bmd_basis == "T":
+        t = snap.get("bmd_t")
+        if t is not None:
+            if t <= -2.5:
+                st["bone"] = ("risk", "OSTÉOPOROSE")
+            elif t < -1.0:
+                st["bone"] = ("warn", "OSTÉOPÉNIE")
+            elif t >= 0.3:
+                st["bone"] = ("good", "SUPÉRIEUR")
+            else:
+                st["bone"] = ("good", "NORMAL")
+    else:  # base Z (préménopause / homme <50) : pas de terme ostéopénie/ostéoporose
+        z = snap.get("bmd_z")
+        if z is not None:
+            if z <= -2.0:
+                st["bone"] = ("warn", "SOUS LA NORMALE ÂGE")
+            elif z >= 0.5:
+                st["bone"] = ("good", "SUPÉRIEUR / ÂGE")
+            else:
+                st["bone"] = ("good", "NORMAL / ÂGE")
+    # masse grasse
+    bf = snap.get("bf_pct")
+    if bf is not None:
+        if bf <= a["bf_athletic"]:
+            st["bf"] = ("good", "ATHLÉTIQUE")
+        elif bf <= a["bf_healthy_mid"] + 6:
+            st["bf"] = ("good", "SAIN")
+        elif bf <= a["bf_healthy_mid"] + 13:
+            st["bf"] = ("warn", "ÉLEVÉ")
+        else:
+            st["bf"] = ("risk", "TRÈS ÉLEVÉ")
+    return st
+
+
+def _trends(data):
+    def series(hist, div=1.0):
+        return [{"date": h["date"], "value": round(h["value"] / div, 3)} for h in hist]
+    return {
+        "bmd": [{"date": h["date"], "value": h["bmd"], "t": h["t"]} for h in data.get("bmd_history", [])],
+        "bf": [{"date": h["date"], "value": h["value"]} for h in data.get("pct_history", [])],
+        "lean": series(data.get("lean_history", []), 1000.0),
+    }
+
+
+def _since_last(data):
+    """Comparatif entre les deux examens les plus récents (None si <2)."""
+    def last_two(hist, div=1.0):
+        pts = [h for h in hist if h.get("date")]
+        if len(pts) < 2:
+            return None
+        a, b = pts[-2], pts[-1]
+        return (a["date"], round(a["value"] / div, 3), b["date"], round(b["value"] / div, 3))
+
+    specs = [  # (key, clé histo, div, unité, décimales, sens_favorable)
+        ("weight", "mass_history", 1000.0, "kg", 1, "neutre"),
+        ("bf_pct", "pct_history", 1.0, "%", 1, "bas"),
+        ("fat", "fat_history", 1000.0, "kg", 1, "bas"),
+        ("lean", "lean_history", 1000.0, "kg", 1, "haut"),
+    ]
+    rows, dates = [], None
+    for key, hk, div, unit, dec, favor in specs:
+        lt = last_two(data.get(hk, []), div)
+        if not lt:
+            continue
+        d0, v0, d1, v1 = lt
+        v0, v1 = round(v0, dec), round(v1, dec)   # cohérence affichage/delta
+        dates = (d0, d1)
+        delta = round(v1 - v0, dec)
+        if abs(delta) < (0.2 if unit == "kg" else 0.3):
+            verdict = "neutral"
+        elif favor == "neutre":
+            verdict = "neutral"
+        elif (favor == "bas" and delta < 0) or (favor == "haut" and delta > 0):
+            verdict = "good"
+        else:
+            verdict = "warn"
+        rows.append({"key": key, "unit": unit, "prev": v0, "curr": v1,
+                     "delta": delta, "dir": "up" if delta > 0 else ("down" if delta < 0 else "flat"),
+                     "verdict": verdict, "dec": dec})
+
+    # DMO (avec seuil de significativité)
+    bmd = [h for h in data.get("bmd_history", []) if h.get("date")]
+    if len(bmd) >= 2:
+        a, b = bmd[-2], bmd[-1]
+        dates = (a["date"], b["date"])
+        delta = round(b["bmd"] - a["bmd"], 3)
+        sig = abs(delta) >= R.BMD_LSC
+        verdict = "neutral" if not sig else ("good" if delta > 0 else "warn")
+        rows.append({"key": "bmd", "unit": "g/cm²", "prev": a["bmd"], "curr": b["bmd"],
+                     "delta": delta, "dir": "up" if delta > 0 else ("down" if delta < 0 else "flat"),
+                     "verdict": verdict, "dec": 3, "sig": sig})
+
+    if not rows or not dates:
+        return None
+    months = round((dates[1] - dates[0]).days / 30.44, 1)
+    return {"prev_date": dates[0], "curr_date": dates[1], "months": months, "rows": rows}
+
+
+def _velocity(data):
+    """Vitesse mensuelle mesurée (points, sinon None) : %MG/mois et kg maigre/mois."""
+    def rate(hist, div=1.0):
+        pts = [h for h in hist if h.get("date")]
+        if len(pts) < 2:
+            return None
+        a, b = pts[-2], pts[-1]
+        months = (b["date"] - a["date"]).days / 30.44
+        if months <= 0:
+            return None
+        return round((b["value"] - a["value"]) / div / months, 3)
+    return {"fat_pct_per_month": rate(data.get("pct_history", [])),
+            "lean_kg_per_month": rate(data.get("lean_history", []), 1000.0)}
+
+
+def _interpret(out):
+    """Génère lead + paragraphe + actions priorisées à partir des signaux (FR/EN)."""
+    snap = out["snap"]; a = R.ANCHORS[out["demo"]["sex"]]; sex = out["demo"]["sex"]
+    en = out.get("lang") == "en"
+    female = sex == "F"
+    num = (lambda x: f"{x}") if en else (lambda x: f"{x}".replace(".", ","))
+
+    muscle_low = snap.get("almi") is not None and snap["almi"] < a["almi_median"]
+    bf_floor = snap.get("bf_pct") is not None and snap["bf_pct"] <= a["bf_athletic"] + 1
+    vat_great = snap.get("vat_mass_g") is not None and snap["vat_mass_g"] < a["vat_mass_thr"] * 0.5
+    bone_great = snap.get("bmd_t") is not None and snap["bmd_t"] >= 0.3
+    bone_normal = snap.get("bmd_t") is not None and snap["bmd_t"] > -1.0
+    lean_bmi = out["bmi"] is not None and out["bmi"] < 20
+    asym = out.get("arm_asym") and out["arm_asym"]["flag"]
+
+    strengths = []
+    if vat_great:
+        strengths.append("metabolic" if en else "métabolique")
+    if bone_great:
+        strengths.append("bone" if en else "osseux")
+    if en:
+        s = (" and ".join(strengths)) if strengths else "composition"
+        lead = (f"An excellent {s} profile, whose main area for progress is building muscle."
+                if muscle_low else f"A solid, balanced {s} profile to maintain.")
+    else:
+        s = (" et ".join(strengths)) if strengths else "de composition"
+        lead = (f"Un profil {s} excellent, dont le principal axe de progrès est la construction de muscle."
+                if muscle_low else f"Un profil {s} solide et équilibré, à entretenir.")
+
+    para = []
+    if en:
+        if vat_great:
+            para.append("Visceral fat is remarkably low: composition-related cardiometabolic risk is minimal.")
+        if bone_great:
+            para.append("Bone density is above the young-adult average — an asset to preserve.")
+        elif bone_normal:
+            para.append("Bone density is normal.")
+        if muscle_low:
+            para.append("Muscle mass sits around the reference median: this is where a gain would help most (strength, metabolism, bone protection).")
+        if bf_floor:
+            para.append("Fat mass is already low: with a modest BMI, the priority is adequate energy intake, not weight loss."
+                        if female else "Fat mass is in the athletic zone, near the floor: going lower brings no health benefit.")
+    else:
+        if vat_great:
+            para.append("La graisse viscérale est remarquablement basse : le risque cardiométabolique lié à la composition corporelle est minime.")
+        if bone_great:
+            para.append("La densité osseuse dépasse la moyenne du jeune adulte — un atout à préserver.")
+        elif bone_normal:
+            para.append("La densité osseuse est normale.")
+        if muscle_low:
+            para.append("La masse musculaire se situe autour de la médiane de référence : c'est le poste où un gain apporterait le plus (force, métabolisme, protection osseuse).")
+        if bf_floor:
+            para.append("La masse grasse est déjà basse : combinée à un IMC modeste, la priorité est un apport énergétique suffisant, pas une perte de poids."
+                        if female else "La masse grasse est en zone athlétique, proche du plancher : descendre plus bas n'apporterait aucun bénéfice santé.")
+
+    actions = []
+    if muscle_low:
+        tgt = round(snap["almi"] + 0.6, 1)
+        if en:
+            actions.append(("Progressive resistance training",
+                            f"Strength training, hypertrophy/power focus. Target: ALMI {num(snap['almi'])} → {num(tgt)}+ kg/m² over 12 months.",
+                            "Priority — #1 lever on biological age"))
+        else:
+            actions.append(("Renforcement musculaire progressif",
+                            f"Musculation orientée hypertrophie/force. Objectif : ALMI {num(snap['almi'])} → {num(tgt)}+ kg/m² sur 12 mois.",
+                            "Priorité — levier n°1 sur l'âge biologique"))
+    if female and (bf_floor or lean_bmi):
+        actions.append(("Energy availability (avoid RED-S)",
+                        "Adequate energy and protein 1.6–2.2 g/kg/day. Protect the hormonal cycle and bone capital — don't aim leaner.",
+                        "Nutrition · female health") if en else
+                       ("Disponibilité énergétique (éviter le RED-S)",
+                        "Énergie suffisante et protéines 1,6–2,2 g/kg/j. Protéger cycle hormonal et capital osseux — ne pas viser plus maigre.",
+                        "Nutrition · santé féminine"))
+    elif bf_floor:
+        actions.append(("Fuel performance, not restriction",
+                        "Protein 1.6–2.2 g/kg/day and adequate energy. At this body-fat level, the priority is intake, not a deficit.",
+                        "Nutrition") if en else
+                       ("Nourrir la performance, pas la restriction",
+                        "Protéines 1,6–2,2 g/kg/j et énergie suffisante. À ce niveau de masse grasse, la priorité est l'apport, pas le déficit.",
+                        "Nutrition"))
+    if asym:
+        ar = out["arm_asym"]
+        side = ("right" if ar["bigger"] == "droit" else "left") if en else ar["bigger"]
+        if en:
+            actions.append(("Correct the arm asymmetry",
+                            f"Arm gap {ar['pct']:.0f}% ({side} stronger). Unilateral work starting with the weaker side.",
+                            "Injury prevention · aesthetics"))
+        else:
+            actions.append(("Corriger l'asymétrie des bras",
+                            f"Écart bras {ar['pct']:.0f} % ({side} plus fort). Travail unilatéral en démarrant par le côté faible.",
+                            "Prévention blessure · esthétique"))
+    actions.append(("Maintain bone capital",
+                    "Heavy loads and impacts, adequate calcium/vitamin D.",
+                    "Long-term prevention") if en else
+                   ("Entretenir le capital osseux",
+                    "Charges lourdes et impacts, apports calcium/vitamine D adéquats.",
+                    "Prévention long terme"))
+    if out["has_history"]:
+        actions.append(("Keep tracking",
+                        "Re-scan in 6–12 months to extend the trends (significant BMD threshold ±0.014 g/cm²).",
+                        "Follow-up") if en else
+                       ("Poursuivre le suivi",
+                        "Re-scan dans 6–12 mois pour prolonger les tendances (seuil DMO significatif ±0,014 g/cm²).",
+                        "Suivi"))
+    else:
+        actions.append(("Establish the first trend",
+                        "This first exam becomes the reference. Re-scan in 6–12 months to objectively measure gains.",
+                        "Follow-up") if en else
+                       ("Créer la première tendance",
+                        "Ce premier examen devient la référence. Re-scan dans 6–12 mois pour mesurer objectivement les gains.",
+                        "Suivi"))
+    return {"lead": lead, "para": " ".join(para), "actions": actions[:4]}
